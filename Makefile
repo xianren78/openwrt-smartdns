@@ -1,5 +1,5 @@
 #
-# Copyright (c) 2018-2023 Nick Peng (pymumu@gmail.com)
+# Copyright (c) 2018-2025 Nick Peng (pymumu@gmail.com)
 # This is free software, licensed under the GNU General Public License v3.
 #
 
@@ -10,9 +10,9 @@ PKG_VERSION:=1.2025.46.2
 PKG_RELEASE:=5
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://www.github.com/pymumu/smartdns.git
-PKG_MIRROR_HASH:=150019a03f1ec2e4b5849740a72badf5ea094d5754bd59dd30119523a3ce9398
-PKG_SOURCE_VERSION:=ea4ea566fb3624baf361c6fb22c33fed1746782b
+PKG_SOURCE_URL:=https://www.github.com/PikuZheng/smartdns.git
+PKG_SOURCE_VERSION:=2d9ad79be1b618e3896958e00edfaf588108100e
+PKG_MIRROR_HASH:=skip
 
 SMARTDNS_WEBUI_VERSION:=1.0.0
 SMAETDNS_WEBUI_SOURCE_PROTO:=git
@@ -26,7 +26,7 @@ PKG_LICENSE_FILES:=LICENSE
 
 PKG_BUILD_PARALLEL:=1
 
-# node compile is slow, so do not use it, doownload node manually.
+# node compile is slow, so do not use it, download node manually.
 # PACKAGE_smartdns-ui:node/host
 PKG_BUILD_DEPENDS:=PACKAGE_smartdns-ui:rust/host 
 
@@ -46,7 +46,7 @@ endef
 define Package/smartdns
   $(Package/smartdns/default)
   TITLE:=smartdns server
-  DEPENDS:=+libpthread +libopenssl +libatomic
+  DEPENDS:=+libpthread +libatomic
 endef
 
 define Package/smartdns/description
@@ -73,6 +73,9 @@ define Package/smartdns/install
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/blacklist-ip.conf $(1)/etc/smartdns/blacklist-ip.conf
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/custom.conf $(1)/etc/smartdns/custom.conf
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/files/etc/config/smartdns $(1)/etc/config/smartdns
+	$(INSTALL_DIR) $(1)/usr/lib/smartdns
+	$(CP) $(TOPDIR)/../openssl-install/usr/local/lib/libssl.so.3 $(1)/usr/lib/smartdns/
+	$(CP) $(TOPDIR)/../openssl-install/usr/local/lib/libcrypto.so.3 $(1)/usr/lib/smartdns/
 endef
 
 define Package/smartdns-ui
@@ -115,7 +118,7 @@ define Download/smartdns-webui
 	FILE:=$(SMARTDNS_WEBUI_FILE)
 	PROTO:=$(SMAETDNS_WEBUI_SOURCE_PROTO)
 	URL:=$(SMARTDNS_WEBUI_SOURCE_URL)
-	MIRROR_HASH:=87830094aab9246debb195c944079e4f8b06f9b2fdbc7a3cdf2934277b6135b3
+	MIRROR_HASH:=skip
 	VERSION:=$(SMARTDNS_WEBUI_SOURCE_VERSION)
 	HASH:=$(SMARTDNS_WEBUI_HASH)
 	SUBDIR:=smartdns-webui
@@ -140,4 +143,3 @@ endef
 $(eval $(call BuildPackage,smartdns))
 $(eval $(call RustBinPackage,smartdns-ui))
 $(eval $(call BuildPackage,smartdns-ui))
-
