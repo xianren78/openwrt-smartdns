@@ -76,7 +76,8 @@ jobs:
           # Verify Docker installation
           docker --version
           sudo mkdir -p /builder/.ccache
-          sudo chown runner:runner /builder /builder/.ccache
+          sudo chown -R runner:runner /builder /builder/.ccache
+          sudo chmod -R u+rw /builder/.ccache
           export CCACHE_DIR=/builder/.ccache
           ccache -M 10G
           ccache -s
@@ -176,6 +177,7 @@ jobs:
             LDFLAGS="-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns" \
             PKG_CONFIG_PATH="${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
           make -j$(nproc) package/luci-app-smartdns/compile
+          ccache -s
           mkdir -p ${{ github.workspace }}/build
           cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk ${{ github.workspace }}/build/ || true
           cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.ipk ${{ github.workspace }}/build/ || true
