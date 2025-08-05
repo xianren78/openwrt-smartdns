@@ -75,12 +75,6 @@ jobs:
           sudo systemctl start docker
           # Verify Docker installation
           docker --version
-          sudo mkdir -p /builder/.ccache
-          sudo chown -R runner:runner /builder /builder/.ccache
-          sudo chmod -R u+rw /builder/.ccache
-          export CCACHE_DIR=/builder/.ccache
-          ccache -M 10G
-          ccache -s
 
       - name: Build OpenSSL 3.5.1 in Docker
         run: |
@@ -110,6 +104,27 @@ jobs:
           mkdir -p openwrt-sdk
           curl -sSL --retry 3 --retry-delay 5 https://downloads.openwrt.org/releases/24.10.2/targets/${{ matrix.target }}/${{ matrix.subtarget }}/openwrt-sdk-24.10.2-${{ matrix.target }}-${{ matrix.subtarget }}_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
           tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
+
+      - name: Extract Rust version from SDK
+        id: rust-version
+        run: |
+          cd openwrt-sdk
+          RUST_VERSION=$(ls build_dir/target-${{ matrix.package_arch }}_musl/host/rustc-* | grep -oP 'rustc-\K[0-9.]+' || echo "1.85.0")
+          echo "RUST_VERSION=$RUST_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Cache Rust and Cargo toolchain
+        id: cache-rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            openwrt-sdk/dl/cargo
+            openwrt-sdk/dl/rustc
+            openwrt-sdk/build_dir/target-${{ matrix.package_arch }}_musl/host/rustc-1.85.0-src
+            openwrt-sdk/staging_dir/target-${{ matrix.package_arch }}_musl/host
+            openwrt-sdk/staging_dir/hostpkg/stamp/.rust_installed
+          key: rust-toolchain-${{ matrix.arch }}-${{ steps.rust-version.outputs.RUST_VERSION }}-${{ hashFiles('openwrt-sdk/build_dir/target-${{ matrix.package_arch }}_musl/smartdns-1.2025.46.2/plugin/smartdns-ui/Cargo.lock') }}
+          restore-keys: |
+            rust-toolchain-${{ matrix.arch }}-${{ steps.rust-version.outputs.RUST_VERSION }}-
 
       - name: Update and install feeds (smartdns)
         run: |
@@ -156,12 +171,6 @@ jobs:
           EOF
           make defconfig
 
-      - name: Restore Cached
-        uses: actions/cache/restore@v4
-        with:
-          path: /builder/.ccache
-          key: ${{ matrix.package_arch }}-ccache
-
       - name: Build smartdns and luci-app-smartdns
         run: |
           cd openwrt-sdk
@@ -190,21 +199,6 @@ jobs:
             tar -xzf ${{ github.workspace }}/build/smartdns*.ipk -C ${{ github.workspace }}/ipk_contents || true
             find ${{ github.workspace }}/ipk_contents -type f
           fi
-
-      - name: Delete Cached
-        continue-on-error: true
-        working-directory: /builder
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: |
-          gh cache delete ${{ matrix.package_arch }}-ccache || true
-
-      - name: Save Cached
-        uses: actions/cache/save@v4
-        with:
-          path: /builder/.ccache
-          key: ${{ matrix.package_arch }}-ccache
 
       - name: Generate release tag
         id: tag
