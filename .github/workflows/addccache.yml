@@ -78,7 +78,7 @@ jobs:
           sudo mkdir -p /builder/.ccache
           sudo chown runner:runner /builder /builder/.ccache
           export CCACHE_DIR=/builder/.ccache
-          ccache -M 1G
+          ccache -M 10G
           ccache -s
 
       - name: Build OpenSSL 3.5.1 in Docker
@@ -171,7 +171,7 @@ jobs:
           #find staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib -type f -name "libssl*" -o -name "libcrypto*"
           #find staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/openssl -type f
           # Build with explicit CFLAGS and LDFLAGS
-          make -j$(nproc) package/smartdns/compile  V=s \
+          make -j$(nproc) package/smartdns/compile \
             CFLAGS="-I${{ github.workspace }}/openssl-install/usr/local/include" \
             LDFLAGS="-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns" \
             PKG_CONFIG_PATH="${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
@@ -193,7 +193,7 @@ jobs:
         run: |
           cd openwrt-sdk
           # Build with explicit CFLAGS and LDFLAGS
-          make -j$(nproc) package/smartdns/compile V=s \
+          make -j$(nproc) package/smartdns/compile \
             CFLAGS="-I${{ github.workspace }}/openssl-install/usr/local/include -DFEATURE_CHECK_EDNS" \
             LDFLAGS="-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns" \
             PKG_CONFIG_PATH="${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
