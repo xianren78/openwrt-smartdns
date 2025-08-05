@@ -171,7 +171,7 @@ jobs:
           #find staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib -type f -name "libssl*" -o -name "libcrypto*"
           #find staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/openssl -type f
           # Build with explicit CFLAGS and LDFLAGS
-          make -j$(nproc) package/smartdns/compile V=s \
+          make -j$(nproc) package/smartdns/compile \
             CFLAGS="-I${{ github.workspace }}/openssl-install/usr/local/include" \
             LDFLAGS="-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns" \
             PKG_CONFIG_PATH="${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
