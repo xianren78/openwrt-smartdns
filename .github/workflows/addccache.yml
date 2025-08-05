@@ -158,6 +158,7 @@ jobs:
 
       - name: Build smartdns and luci-app-smartdns
         run: |
+          mkdir -p /builder/.ccache
           cd openwrt-sdk
           # Debug: Verify CFLAGS, LDFLAGS, PKG_CONFIG_PATH, and library paths
           #echo "CUSTOM_CFLAGS=-I${{ github.workspace }}/openssl-install/usr/local/include"
@@ -166,11 +167,11 @@ jobs:
           #find staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib -type f -name "libssl*" -o -name "libcrypto*"
           #find staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/openssl -type f
           # Build with explicit CFLAGS and LDFLAGS
-          make -j$(nproc) package/luci-app-smartdns/compile
-          make -j$(nproc) package/smartdns/compile \
+          make -j$(nproc) package/smartdns/compile  V=s \
             CFLAGS="-I${{ github.workspace }}/openssl-install/usr/local/include" \
             LDFLAGS="-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns" \
             PKG_CONFIG_PATH="${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
+          make -j$(nproc) package/luci-app-smartdns/compile
           mkdir -p ${{ github.workspace }}/build
           cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk ${{ github.workspace }}/build/ || true
           cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.ipk ${{ github.workspace }}/build/ || true
@@ -184,6 +185,27 @@ jobs:
             find ${{ github.workspace }}/ipk_contents -type f
           fi
 
+      - name: Build smartdns with check-edns feature
+        run: |
+          cd openwrt-sdk
+          # Build with explicit CFLAGS and LDFLAGS
+          make -j$(nproc) package/smartdns/compile V=s \
+            CFLAGS="-I${{ github.workspace }}/openssl-install/usr/local/include -DFEATURE_CHECK_EDNS" \
+            LDFLAGS="-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns" \
+            PKG_CONFIG_PATH="${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
+          mkdir -p ${{ github.workspace }}/build-edns
+          cp bin/packages/${{ matrix.package_arch }}/packages/smartdns-*.ipk ${{ github.workspace }}/build-edns/ || true
+          # Verify build outputs
+          cd "${{ github.workspace }}/build-edns/"
+          endsfile=$(ls smartdns-*.ipk 2>/dev/null)
+          if [ -z "$endsfile" ]; then
+              echo "未找到匹配 smartdns-*.ipk 的文件，跳过重命名和复制。"
+          else
+              newfile="${endsfile%.ipk}-edns.ipk"
+              mv "$endsfile" "$newfile"
+              cp "$newfile" "${{ github.workspace }}/build/"
+          fi
+ 
       - name: Delete Cached
         continue-on-error: true
         working-directory: /builder
@@ -202,7 +224,7 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}" >> $GITHUB_OUTPUT
+          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-ccache" >> $GITHUB_OUTPUT
           echo "Build openwrt-smartdns and luci-app-smartdns for ${{ matrix.arch }} with OpenSSL 3.5.1" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
@@ -220,6 +242,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
+          tag_name: ${{ steps.tag.outputs.release_tag }}-ccache
           body_path: release.txt
           files: ${{ github.workspace }}/build/*.ipk
