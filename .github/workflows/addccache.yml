@@ -75,6 +75,7 @@ jobs:
           sudo systemctl start docker
           # Verify Docker installation
           docker --version
+          sudo mkdir -p /builder/.ccache
 
       - name: Build OpenSSL 3.5.1 in Docker
         run: |
@@ -158,7 +159,6 @@ jobs:
 
       - name: Build smartdns and luci-app-smartdns
         run: |
-          mkdir -p /builder/.ccache
           cd openwrt-sdk
           # Debug: Verify CFLAGS, LDFLAGS, PKG_CONFIG_PATH, and library paths
           #echo "CUSTOM_CFLAGS=-I${{ github.workspace }}/openssl-install/usr/local/include"
