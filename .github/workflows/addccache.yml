@@ -76,6 +76,10 @@ jobs:
           # Verify Docker installation
           docker --version
           sudo mkdir -p /builder/.ccache
+          sudo chown runner:runner /builder /builder/.ccache
+          export CCACHE_DIR=/builder/.ccache
+          ccache -M 1G
+          ccache -s
 
       - name: Build OpenSSL 3.5.1 in Docker
         run: |
