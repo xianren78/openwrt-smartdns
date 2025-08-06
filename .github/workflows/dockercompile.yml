@@ -146,8 +146,8 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
       - name: Build smartdns and luci-app-smartdns in container
         run: |
-          docker exec sdk-build-${{ matrix.arch }} sh -c "make -j$(nproc) package/smartdns/compile CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
-          docker exec sdk-build-${{ matrix.arch }} sh -c "make -j$(nproc) package/luci-app-smartdns/compile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make -j$(nproc) package/smartdns/compile V=s CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make -j$(nproc) package/luci-app-smartdns/compile V=s"
           mkdir -p ${{ github.workspace }}/build
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk /workspace/build/ || true"
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.ipk /workspace/build/ || true"
