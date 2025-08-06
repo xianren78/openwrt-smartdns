@@ -179,7 +179,7 @@ jobs:
       - name: Generate release tag
         id: tag
         run: |
-          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}" >> $GITHUB_OUTPUT
+          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${{ github.sha }}" >> $GITHUB_OUTPUT
           echo "Build openwrt-smartdns and luci-app-smartdns for ${{ matrix.arch }} with OpenSSL 3.5.1" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
