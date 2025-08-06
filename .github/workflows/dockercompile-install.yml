@@ -103,12 +103,12 @@ jobs:
           docker start sdk-build-${{ matrix.arch }}
       - name: Install Rust in container
         run: |
-          #docker exec sdk-build-${{ matrix.arch }} sh -c "apt-get update && apt-get install -y curl gcc make python3 git pkgconf"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "echo 'export PATH=/root/.cargo/bin:\$PATH' >> /root/.profile"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup install 1.85.0"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.package_arch }}-unknown-linux-musl"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustc --version && cargo --version"
+          docker exec --user root sdk-build-${{ matrix.arch }} sh -c "apt-get update && apt-get install -y curl gcc make python3 git pkgconf"
+          docker exec --user root sdk-build-${{ matrix.arch }} sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+          docker exec --user root sdk-build-${{ matrix.arch }} sh -c "echo 'export PATH=/root/.cargo/bin:\$PATH' >> /root/.profile"
+          docker exec --user root sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup install 1.85.0"
+          docker exec --user root sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.package_arch }}-unknown-linux-musl"
+          docker exec --user root sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustc --version && cargo --version"
       - name: Update and install feeds in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
