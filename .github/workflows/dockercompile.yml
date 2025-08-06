@@ -1,4 +1,4 @@
-name: Enable ccache to build luci-app-smartdns and smartdns
+name: Build luci-app-smartdns and smartdns with docker
 
 on:
   push:
@@ -37,11 +37,13 @@ jobs:
             subtarget: 64
             package_arch: x86_64
             goarch: x86_64
+            docker_tag: x86-64
           - arch: aarch64
             target: armsr
             subtarget: armv8
             package_arch: aarch64_generic
             goarch: aarch64
+            docker_tag: aarch64_generic
       fail-fast: false
     runs-on: ubuntu-latest
     env:
@@ -51,11 +53,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
       - name: Set timezone
         run: |
           sudo timedatectl set-timezone "Asia/Shanghai"
-
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -75,12 +75,11 @@ jobs:
           sudo systemctl start docker
           # Verify Docker installation
           docker --version
-
       - name: Build OpenSSL 3.5.1 in Docker
         run: |
           mkdir -p ${{ github.workspace }}/openssl
           curl -sSL https://github.com/openssl/openssl/releases/download/openssl-3.5.1/openssl-3.5.1.tar.gz -o openssl.tar.gz
-          echo "529043b15cffa5f36077a4d0af83f3de399807181d607441d734196d889b641f  openssl.tar.gz" | sha256sum --check || { echo "Hash mismatch"; exit 1; }
+          echo "529043b15cffa5f36077a4d0af83f3de399807181d607441d734196d889b641f openssl.tar.gz" | sha256sum --check || { echo "Hash mismatch"; exit 1; }
           tar -zxvf openssl.tar.gz --strip-components=1 -C openssl
           cd ${{ github.workspace }}
           rm -f docker-openssl.sh
@@ -98,67 +97,44 @@ jobs:
           docker run -i --rm -v ${{ github.workspace }}:/workdir -e GOARCH=${{ matrix.goarch }} muslcc/x86_64:${{ matrix.goarch }}-linux-musl sh /workdir/docker-openssl.sh
           # Debug: List installed OpenSSL files
           find ${{ github.workspace }}/openssl-install -type f
-
-      - name: Download and extract OpenWrt SDK
+      - name: Pull OpenWrt SDK Docker image
         run: |
-          mkdir -p openwrt-sdk
-          curl -sSL --retry 3 --retry-delay 5 https://downloads.openwrt.org/releases/24.10.2/targets/${{ matrix.target }}/${{ matrix.subtarget }}/openwrt-sdk-24.10.2-${{ matrix.target }}-${{ matrix.subtarget }}_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
-          tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
-
-      - name: Extract Rust version from SDK
-        id: rust-version
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          if docker pull ghcr.io/${{ github.repository_owner }}/sdk-with-rust:${{ matrix.docker_tag }}-24.10.2; then
+            echo "Successfully pulled cached image with Rust toolchain"
+          else
+            echo "Cached image not found, pulling default OpenWrt SDK image"
+            docker pull openwrtorg/sdk:${{ matrix.docker_tag }}-24.10.2
+          fi
+      - name: Create and start SDK container
         run: |
-          cd openwrt-sdk
-          RUST_VERSION=$(ls build_dir/target-${{ matrix.package_arch }}_musl/host/rustc-* | grep -oP 'rustc-\K[0-9.]+' || echo "1.85.0")
-          echo "RUST_VERSION=$RUST_VERSION" >> $GITHUB_OUTPUT
-
-      - name: Cache Rust and Cargo toolchain
-        id: cache-rust
-        uses: actions/cache@v4
-        with:
-          path: |
-            openwrt-sdk/dl/cargo
-            openwrt-sdk/dl/rustc
-            openwrt-sdk/build_dir/target-${{ matrix.package_arch }}_musl/host/rustc-1.85.0-src
-            openwrt-sdk/staging_dir/target-${{ matrix.package_arch }}_musl/host
-            openwrt-sdk/staging_dir/hostpkg/stamp/.rust_installed
-          key: rust-toolchain-${{ matrix.arch }}-${{ steps.rust-version.outputs.RUST_VERSION }}-${{ hashFiles('openwrt-sdk/build_dir/target-${{ matrix.package_arch }}_musl/smartdns-1.2025.46.2/plugin/smartdns-ui/Cargo.lock') }}
-          restore-keys: |
-            rust-toolchain-${{ matrix.arch }}-${{ steps.rust-version.outputs.RUST_VERSION }}-
-
-      - name: Update and install feeds (smartdns)
+          docker create --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/${{ github.repository_owner }}/sdk-with-rust:${{ matrix.docker_tag }}-24.10.2 || docker create --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace openwrtorg/sdk:${{ matrix.docker_tag }}-24.10.2 sleep infinity
+          docker start sdk-build-${{ matrix.arch }}
+      - name: Update and install feeds in container
         run: |
-          cd openwrt-sdk
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-
-      - name: Clone smartdns source into feeds
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
+      - name: Clone smartdns source into feeds in container
         run: |
-          cd openwrt-sdk
-          rm -rf feeds/packages/net/smartdns
-          rm -rf feeds/luci/applications/luci-app-smartdns
-          git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns
-          git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns
-          ./scripts/feeds install -f smartdns
-          ./scripts/feeds install -f luci-app-smartdns
-
-      - name: Configure build with custom OpenSSL
+          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci/applications/luci-app-smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
+      - name: Configure build with custom OpenSSL in container
         run: |
-          cd openwrt-sdk
-          # Copy OpenSSL headers to SDK staging directory
-          mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include
-          cp -r ${{ github.workspace }}/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/
-          # Copy OpenSSL libraries to SDK toolchain directory
-          mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib
-          cp ${{ github.workspace }}/openssl-install/usr/local/lib/libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/
-          cp ${{ github.workspace }}/openssl-install/usr/local/lib/libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/
-          # Create symbolic links for libssl.so and libcrypto.so
-          ln -sf libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libssl.so
-          ln -sf libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libcrypto.so
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp -r /workspace/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libssl.so"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libcrypto.so"
           # Debug: Verify symbolic links
-          ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libssl*
-          ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libcrypto*
-          cat <<EOF > .config
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libssl*"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libcrypto*"
+          docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > .config
           CONFIG_PACKAGE_smartdns=y
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-compat=y
@@ -166,31 +142,16 @@ jobs:
           CONFIG_PACKAGE_libopenssl=n
           CONFIG_OPENSSL_WITH_QUIC=y
           CONFIG_TARGET_IMAGES=n
-          CONFIG_CCACHE=y
-          CONFIG_CCACHE_DIR=/builder/.ccache
-          EOF
-          make defconfig
-
-      - name: Build smartdns and luci-app-smartdns
+          EOF'
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
+      - name: Build smartdns and luci-app-smartdns in container
         run: |
-          cd openwrt-sdk
-          # Debug: Verify CFLAGS, LDFLAGS, PKG_CONFIG_PATH, and library paths
-          #echo "CUSTOM_CFLAGS=-I${{ github.workspace }}/openssl-install/usr/local/include"
-          #echo "CUSTOM_LDFLAGS=-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns"
-          #echo "CUSTOM_PKG_CONFIG_PATH=${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
-          #find staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib -type f -name "libssl*" -o -name "libcrypto*"
-          #find staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/openssl -type f
-          # Build with explicit CFLAGS and LDFLAGS
-          make -j$(nproc) package/smartdns/compile \
-            CFLAGS="-I${{ github.workspace }}/openssl-install/usr/local/include" \
-            LDFLAGS="-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns" \
-            PKG_CONFIG_PATH="${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
-          make -j$(nproc) package/luci-app-smartdns/compile
-          ccache -s
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make -j$(nproc) package/smartdns/compile CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make -j$(nproc) package/luci-app-smartdns/compile"
           mkdir -p ${{ github.workspace }}/build
-          cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk ${{ github.workspace }}/build/ || true
-          cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.ipk ${{ github.workspace }}/build/ || true
-          cp bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns*.ipk ${{ github.workspace }}/build/ || true
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.ipk /workspace/build/ || true"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.ipk /workspace/build/ || true"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns*.ipk /workspace/build/ || true"
           # Verify build outputs
           ls -l ${{ github.workspace }}/build/
           # Debug: Extract and verify contents of smartdns.ipk
@@ -199,7 +160,12 @@ jobs:
             tar -xzf ${{ github.workspace }}/build/smartdns*.ipk -C ${{ github.workspace }}/ipk_contents || true
             find ${{ github.workspace }}/ipk_contents -type f
           fi
-
+      - name: Backup Docker image with compiled Rust and Cargo
+        run: |
+          docker commit sdk-build-${{ matrix.arch }} sdk-with-rust:${{ matrix.docker_tag }}
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          docker tag sdk-with-rust:${{ matrix.docker_tag }} ghcr.io/${{ github.repository_owner }}/sdk-with-rust:${{ matrix.docker_tag }}-24.10.2
+          docker push ghcr.io/${{ github.repository_owner }}/sdk-with-rust:${{ matrix.docker_tag }}-24.10.2
       - name: Generate release tag
         id: tag
         run: |
@@ -208,13 +174,12 @@ jobs:
           echo "Build openwrt-smartdns and luci-app-smartdns for ${{ matrix.arch }} with OpenSSL 3.5.1" > release.txt
           echo "Commit: ${{ github.sha }}" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
-
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}-ccache
+          tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
           files: ${{ github.workspace }}/build/*.ipk
