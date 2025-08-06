@@ -112,8 +112,7 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup default 1.85.0-x86_64-unknown-linux-gnu"
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.rust_target }} --toolchain 1.85.0-x86_64-unknown-linux-gnu"
           docker exec sdk-build-${{ matrix.arch }} sh -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && node -v && npm -v"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && export PATH=/root/.cargo/bin:$PATH && cargo install --force --locked bindgen-cli" 
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustc --version && cargo --version && npm --version && bindgen --version"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustc --version && cargo --version && npm --version"
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
       - name: Update and install feeds in container
         run: |
@@ -152,7 +151,7 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
       - name: Build smartdns and luci-app-smartdns in container
         run: |
-          docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
+          #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
           docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/smartdns/compile V=s CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
           docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/luci-app-smartdns/compile V=s"
           mkdir -p ${{ github.workspace }}/build

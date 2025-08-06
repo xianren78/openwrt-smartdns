@@ -118,7 +118,7 @@ jobs:
           rm -rf feeds/luci/applications/luci-app-smartdns
           git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns
           MAKEFILE_PATH="feeds/packages/net/smartdns/Makefile"
-          sed -i '30i\PKG_BUILD_DEPENDS:=PACKAGE_smartdns-ui:rust/host' "$MAKEFILE_PATH"
+          mv -f feeds/packages/net/smartdns/Makefile.sdk "$MAKEFILE_PATH"
           git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns
           ./scripts/feeds install -f smartdns
           ./scripts/feeds install -f luci-app-smartdns
