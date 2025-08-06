@@ -28,14 +28,23 @@ jobs:
       - name: Get latest commit SHA from smartdns repo
         id: get-smartdns
         run: |
-          LATEST_SMARTDNS_COMMIT=$(curl -s https://api.github.com/repos/xianren78/smartdns/commits/master | jq -r .sha)
+          LATEST_SMARTDNS_COMMIT=$(curl -s https://api.github.com/repos/xianren78/smartdns/commits/master | jq -r '.sha // empty')
+          if [ -z "$LATEST_SMARTDNS_COMMIT" ]; then
+            echo "Failed to fetch latest commit from xianren78/smartdns"
+            exit 1
+          fi
           echo "LATEST_SMARTDNS_COMMIT=$LATEST_SMARTDNS_COMMIT" >> $GITHUB_ENV
 
       - name: Get latest commit SHA from smartdns-webui repo
         id: get-webui
         run: |
-          LATEST_WEBUI_COMMIT=$(curl -s https://api.github.com/repos/pymumu/smartdns-webui/commits/master | jq -r .sha)
-          echo "LATEST_WEBUI_COMMIT=$LATEST_WEBUI_COMMIT" >> $GITHUB_ENV
+          LATEST_WEBUI_COMMIT=$(curl -s https://api.github.com/repos/pymumu/smartdns-webui/commits/main | jq -r '.sha // empty')
+          if [ -z "$LATEST_WEBUI_COMMIT" ]; then
+            echo "No valid commit SHA from pymumu/smartdns-webui, skipping update"
+            echo "LATEST_WEBUI_COMMIT=$CURRENT_WEBUI_VERSION" >> $GITHUB_ENV
+          else
+            echo "LATEST_WEBUI_COMMIT=$LATEST_WEBUI_COMMIT" >> $GITHUB_ENV
+          fi
 
       - name: Update Makefile if versions differ
         if: env.CURRENT_SMARTDNS_VERSION != env.LATEST_SMARTDNS_COMMIT || env.CURRENT_WEBUI_VERSION != env.LATEST_WEBUI_COMMIT
