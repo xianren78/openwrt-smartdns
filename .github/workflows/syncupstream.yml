@@ -1,0 +1,58 @@
+name: Update SmartDNS and WebUI Package Versions
+
+on:
+  schedule:
+    - cron: '15 */4 * * *'  # Runs every 4 hours
+  workflow_dispatch:  # Allows manual triggering
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}  # Required for pushing changes
+
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Get current versions from Makefile
+        id: get-current
+        run: |
+          CURRENT_SMARTDNS_VERSION=$(grep 'PKG_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
+          CURRENT_WEBUI_VERSION=$(grep 'SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
+          echo "CURRENT_SMARTDNS_VERSION=$CURRENT_SMARTDNS_VERSION" >> $GITHUB_ENV
+          echo "CURRENT_WEBUI_VERSION=$CURRENT_WEBUI_VERSION" >> $GITHUB_ENV
+
+      - name: Get latest commit SHA from smartdns repo
+        id: get-smartdns
+        run: |
+          LATEST_SMARTDNS_COMMIT=$(curl -s https://api.github.com/repos/xianren78/smartdns/commits/master | jq -r .sha)
+          echo "LATEST_SMARTDNS_COMMIT=$LATEST_SMARTDNS_COMMIT" >> $GITHUB_ENV
+
+      - name: Get latest commit SHA from smartdns-webui repo
+        id: get-webui
+        run: |
+          LATEST_WEBUI_COMMIT=$(curl -s https://api.github.com/repos/pymumu/smartdns-webui/commits/master | jq -r .sha)
+          echo "LATEST_WEBUI_COMMIT=$LATEST_WEBUI_COMMIT" >> $GITHUB_ENV
+
+      - name: Update Makefile if versions differ
+        if: env.CURRENT_SMARTDNS_VERSION != env.LATEST_SMARTDNS_COMMIT || env.CURRENT_WEBUI_VERSION != env.LATEST_WEBUI_COMMIT
+        run: |
+          # Update PKG_SOURCE_VERSION if smartdns commit has changed
+          if [ "${{ env.CURRENT_SMARTDNS_VERSION }}" != "${{ env.LATEST_SMARTDNS_COMMIT }}" ]; then
+            sed -i "s/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ env.LATEST_SMARTDNS_COMMIT }}/" Makefile
+            echo "Updated PKG_SOURCE_VERSION to ${{ env.LATEST_SMARTDNS_COMMIT }}"
+          fi
+          # Update SMARTDNS_WEBUI_SOURCE_VERSION if webui commit has changed
+          if [ "${{ env.CURRENT_WEBUI_VERSION }}" != "${{ env.LATEST_WEBUI_COMMIT }}" ]; then
+            sed -i "s/SMARTDNS_WEBUI_SOURCE_VERSION:=.*/SMARTDNS_WEBUI_SOURCE_VERSION:=${{ env.LATEST_WEBUI_COMMIT }}/" Makefile
+            echo "Updated SMARTDNS_WEBUI_SOURCE_VERSION to ${{ env.LATEST_WEBUI_COMMIT }}"
+          fi
+          # Commit and push changes if any
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add Makefile
+          git commit -m "Update PKG_SOURCE_VERSION to ${{ env.LATEST_SMARTDNS_COMMIT }} and SMARTDNS_WEBUI_SOURCE_VERSION to ${{ env.LATEST_WEBUI_COMMIT }}"
+          git push origin HEAD:${{ github.ref_name }}
