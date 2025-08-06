@@ -104,7 +104,7 @@ jobs:
             echo "Successfully pulled cached image with Rust toolchain"
           else
             echo "Cached image not found, pulling default OpenWrt SDK image"
-            docker pull openwrtorg/sdk:${{ matrix.docker_tag }}-24.10.2
+            docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.2
           fi
       - name: Create and start SDK container
         run: |
