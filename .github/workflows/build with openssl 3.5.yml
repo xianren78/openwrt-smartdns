@@ -112,7 +112,7 @@ jobs:
           # Fix Rust 1.85.0 CI
           rm -rf feeds/packages/lang/rust/Makefile
           rm -rf feeds/packages/lang/rust/patches/0003-bump-libc-deps-to-0.2.146.patch
-          wget -O packages/lang/rust/Makefile https://github.com/openwrt/packages/raw/refs/heads/master/lang/rust/Makefile
+          wget -O feeds/packages/lang/rust/Makefile https://github.com/openwrt/packages/raw/refs/heads/master/lang/rust/Makefile
           ./scripts/feeds install -a
 
       - name: Clone smartdns source into feeds
