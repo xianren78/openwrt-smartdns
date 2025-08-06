@@ -35,7 +35,6 @@ jobs:
             package_arch: x86_64
             goarch: x86_64
             docker_tag: x86-64
-            rust_host: x86_64-unknown-linux-gnu
             rust_target: x86_64-unknown-linux-musl
           - arch: aarch64
             target: armsr
@@ -43,7 +42,6 @@ jobs:
             package_arch: aarch64_generic
             goarch: aarch64
             docker_tag: aarch64_generic
-            rust_host: aarch64-unknown-linux-gnu
             rust_target: aarch64-unknown-linux-musl
       fail-fast: false
     runs-on: ubuntu-latest
@@ -110,9 +108,9 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "apt-get update && apt-get install -y curl gcc make python3 git pkgconf nodejs npm"
           docker exec sdk-build-${{ matrix.arch }} sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
           docker exec sdk-build-${{ matrix.arch }} sh -c "echo 'export PATH=/root/.cargo/bin:\$PATH' >> /root/.profile"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup toolchain install 1.85.0-${{ matrix.rust_host }}"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup default 1.85.0-${{ matrix.rust_host }}"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.rust_target }} --toolchain 1.85.0-${{ matrix.rust_host }}"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup toolchain install 1.85.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup default 1.85.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.rust_target }} --toolchain 1.85.0-x86_64-unknown-linux-gnu"
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustc --version && cargo --version && npm --version"
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
       - name: Update and install feeds in container
@@ -129,8 +127,6 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
       - name: Configure build with custom OpenSSL in container
         run: |
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p build_dir/host/rust-1.85.0 && touch build_dir/host/rust-1.85.0/.prepared_skip && touch build_dir/host/rust-1.85.0/.built"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/host/stamp && touch staging_dir/host/stamp/.rust_installed"
           docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp -r /workspace/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/"
           docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib"
@@ -141,6 +137,7 @@ jobs:
           # Debug: Verify symbolic links
           docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libssl*"
           docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib/libcrypto*"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/host/stamp && touch staging_dir/host/stamp/.rust_installed"
           docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > .config
           CONFIG_PACKAGE_smartdns=y
           CONFIG_PACKAGE_luci=y
