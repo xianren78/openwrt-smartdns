@@ -108,7 +108,7 @@ jobs:
           fi
       - name: Create and start SDK container
         run: |
-          docker create --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/${{ github.repository_owner }}/sdk-with-rust:${{ matrix.docker_tag }}-24.10.2 || docker create --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace openwrtorg/sdk:${{ matrix.docker_tag }}-24.10.2 sleep infinity
+          docker create --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/${{ github.repository_owner }}/sdk-with-rust:${{ matrix.docker_tag }}-24.10.2 || docker create --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.2 sleep infinity
           docker start sdk-build-${{ matrix.arch }}
       - name: Update and install feeds in container
         run: |
