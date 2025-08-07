@@ -169,8 +169,45 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
           echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "Build openwrt-smartdns and luci-app-smartdns for ${{ matrix.arch }} with OpenSSL 3.5.1" > release.txt
-          echo "Commit: ${{ github.sha }}" >> release.txt
+          
+          # Fetch latest commit SHA and timestamp for smartdns
+          SMARTDNS_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/pymumu/smartdns/commits/master)
+          SMARTDNS_SHA=$(echo "$SMARTDNS_RESPONSE" | jq -r '.sha // "unknown"')
+          SMARTDNS_TIME=$(echo "$SMARTDNS_RESPONSE" | jq -r '.commit.committer.date // "unknown"')
+          if [ "$SMARTDNS_SHA" = "unknown" ] || [ "$SMARTDNS_TIME" = "unknown" ]; then
+            echo "Error: Failed to fetch smartdns commit SHA or timestamp" >&2
+            exit 1
+          fi
+          echo "Smartdns: https://github.com/pymumu/smartdns/commit/$SMARTDNS_SHA ($SMARTDNS_TIME)" >> release.txt
+          
+          # Fetch latest commit SHA and timestamp for smartdns-webui
+          SMARTDNS_WEBUI_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/pymumu/smartdns-webui/commits/main)
+          SMARTDNS_WEBUI_SHA=$(echo "$SMARTDNS_WEBUI_RESPONSE" | jq -r '.sha // "unknown"')
+          SMARTDNS_WEBUI_TIME=$(echo "$SMARTDNS_WEBUI_RESPONSE" | jq -r '.commit.committer.date // "unknown"')
+          if [ "$SMARTDNS_WEBUI_SHA" = "unknown" ] || [ "$SMARTDNS_WEBUI_TIME" = "unknown" ]; then
+            echo "Error: Failed to fetch smartdns-webui commit SHA or timestamp" >&2
+            exit 1
+          fi
+          echo "Smartdns-webui: https://github.com/pymumu/smartdns-webui/commit/$SMARTDNS_WEBUI_SHA ($SMARTDNS_WEBUI_TIME)" >> release.txt
+          
+          # Fetch latest commit SHA and timestamp for luci-app-smartdns
+          LUCI_APP_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/pymumu/luci-app-smartdns/commits/master)
+          LUCI_APP_SHA=$(echo "$LUCI_APP_RESPONSE" | jq -r '.sha // "unknown"')
+          LUCI_APP_TIME=$(echo "$LUCI_APP_RESPONSE" | jq -r '.commit.committer.date // "unknown"')
+          if [ "$LUCI_APP_SHA" = "unknown" ] || [ "$LUCI_APP_TIME" = "unknown" ]; then
+            echo "Error: Failed to fetch luci-app-smartdns commit SHA or timestamp" >&2
+            exit 1
+          fi
+          echo "luci-app-smartdns: https://github.com/pymumu/luci-app-smartdns/commit/$LUCI_APP_SHA ($LUCI_APP_TIME)" >> release.txt
+          
           echo "status=success" >> $GITHUB_OUTPUT
+
       - name: Upload to release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success'
