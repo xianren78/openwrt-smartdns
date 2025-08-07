@@ -68,6 +68,7 @@ define Package/smartdns/install
 	$(INSTALL_DIR) $(1)/usr/sbin $(1)/etc/config $(1)/etc/init.d 
 	$(INSTALL_DIR) $(1)/etc/smartdns $(1)/etc/smartdns/domain-set $(1)/etc/smartdns/conf.d/
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/src/smartdns $(1)/usr/sbin/smartdns
+	$(STRIP) $(1)/usr/sbin/smartdns
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/package/openwrt/files/etc/init.d/smartdns $(1)/etc/init.d/smartdns
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/address.conf $(1)/etc/smartdns/address.conf
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/blacklist-ip.conf $(1)/etc/smartdns/blacklist-ip.conf
@@ -76,6 +77,8 @@ define Package/smartdns/install
 	$(INSTALL_DIR) $(1)/usr/lib/smartdns
 	$(CP) /workspace/openssl-install/usr/local/lib/libssl.so.3 $(1)/usr/lib/smartdns/
 	$(CP) /workspace/openssl-install/usr/local/lib/libcrypto.so.3 $(1)/usr/lib/smartdns/
+	$(STRIP) $(1)/usr/lib/smartdns/libssl.so.3
+	$(STRIP) $(1)/usr/lib/smartdns/libcrypto.so.3
 endef
 
 define Package/smartdns-ui
