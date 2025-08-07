@@ -92,10 +92,13 @@ jobs:
           fi
           make clean && make -j\$(nproc)
           make install_sw DESTDIR=/workdir/openssl-install
+          strip /workdir/openssl-install/usr/local/lib/libcrypto.so.3 || true
+          strip /workdir/openssl-install/usr/local/lib/libssl.so.3 || true
           EOF
           docker run -i --rm -v ${{ github.workspace }}:/workdir -e GOARCH=${{ matrix.goarch }} muslcc/x86_64:${{ matrix.goarch }}-linux-musl sh /workdir/docker-openssl.sh
           # Debug: List installed OpenSSL files
-          find ${{ github.workspace }}/openssl-install -type f
+          #find ${{ github.workspace }}/openssl-install -type f
+
       - name: Pull OpenWrt SDK Docker image
         run: |
           docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.2
@@ -149,6 +152,7 @@ jobs:
           CONFIG_TARGET_IMAGES=n
           EOF'
           docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
+
       - name: Build smartdns and luci-app-smartdns in container
         run: |
           #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
@@ -160,12 +164,7 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns*.ipk /workspace/build/ || true"
           # Verify build outputs
           ls -l ${{ github.workspace }}/build/
-          # Debug: Extract and verify contents of smartdns.ipk
-          if [ -f ${{ github.workspace }}/build/smartdns*.ipk ]; then
-            mkdir -p ${{ github.workspace }}/ipk_contents
-            tar -xzf ${{ github.workspace }}/build/smartdns*.ipk -C ${{ github.workspace }}/ipk_contents || true
-            find ${{ github.workspace }}/ipk_contents -type f
-          fi
+
       - name: Generate release tag
         id: tag
         run: |
