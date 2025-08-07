@@ -1,0 +1,44 @@
+name: Monitor luci-app-smartdns for New Commits
+on:
+  schedule:
+    - cron: '18 2 * * *'
+  workflow_dispatch: # Allows manual triggering
+jobs:
+  check-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }} # Required for pushing changes
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Get current luci-app-smartdns version from file
+        id: get-current
+        run: |
+          if [ -f "luci-app-smartdns.version" ]; then
+            CURRENT_LUCI_VERSION=$(cat luci-app-smartdns.version)
+          else
+            CURRENT_LUCI_VERSION=""
+          fi
+          echo "CURRENT_LUCI_VERSION=$CURRENT_LUCI_VERSION" >> $GITHUB_ENV
+      - name: Get latest commit SHA from luci-app-smartdns repo
+        id: get-luci
+        run: |
+          LATEST_LUCI_COMMIT=$(curl -s https://api.github.com/repos/pymumu/luci-app-smartdns/commits/master | jq -r '.sha // empty')
+          if [ -z "$LATEST_LUCI_COMMIT" ]; then
+            echo "Failed to fetch latest commit from pymumu/luci-app-smartdns"
+            exit 1
+          fi
+          echo "LATEST_LUCI_COMMIT=$LATEST_LUCI_COMMIT" >> $GITHUB_ENV
+      - name: Commit update if new commit detected
+        if: env.CURRENT_LUCI_VERSION != env.LATEST_LUCI_COMMIT
+        run: |
+          # Store the latest commit SHA
+          echo "${{ env.LATEST_LUCI_COMMIT }}" > luci-app-smartdns.version
+          git add luci-app-smartdns.version
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git commit -m "trigger CI due to new commit no:${{ env.LATEST_LUCI_COMMIT }} in luci-app-smartdns"
+          git push origin HEAD:${{ github.ref_name }}
+          echo "Updated luci-app-smartdns.version to ${{ env.LATEST_LUCI_COMMIT }} and committed to ${{ github.ref_name }}"
