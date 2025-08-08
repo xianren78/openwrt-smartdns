@@ -76,11 +76,15 @@ jobs:
           # Verify Docker installation
           docker --version
 
-      - name: Build OpenSSL 3.5.1 in Docker
+      - name: Build OpenSSL 3.5 in Docker
         run: |
+          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases | jq -r '[.[] | select(.tag_name | startswith("openssl-3.5")) | .tag_name] | sort | last | sub("openssl-"; "")')
+          if [ -z "$opensslver" ]; then
+            opensslver="3.5.2"
+          fi
+          echo "Build with OpenSSL version: $opensslver"
           mkdir -p ${{ github.workspace }}/openssl
-          curl -sSL https://github.com/openssl/openssl/releases/download/openssl-3.5.1/openssl-3.5.1.tar.gz -o openssl.tar.gz
-          echo "529043b15cffa5f36077a4d0af83f3de399807181d607441d734196d889b641f  openssl.tar.gz" | sha256sum --check || { echo "Hash mismatch"; exit 1; }
+          curl -sSL "https://github.com/openssl/openssl/releases/download/openssl-${opensslver}/openssl-${opensslver}.tar.gz" -o openssl.tar.gz
           tar -zxvf openssl.tar.gz --strip-components=1 -C openssl
           cd ${{ github.workspace }}
           rm -f docker-openssl.sh
@@ -187,7 +191,8 @@ jobs:
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
           echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "Build openwrt-smartdns and luci-app-smartdns for ${{ matrix.arch }} with OpenSSL 3.5.1" > release.txt
+          echo "for OpenWrt 24.10 ${{ matrix.arch }} with OpenSSL v$opensslver" > release.txt
+          echo "" > release.txt
           
           # Fetch latest commit SHA and timestamp for smartdns
           SMARTDNS_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
