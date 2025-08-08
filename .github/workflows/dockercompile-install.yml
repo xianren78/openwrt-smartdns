@@ -174,7 +174,7 @@ jobs:
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
           echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}" >> $GITHUB_OUTPUT
           echo "for OpenWrt 24.10 ${{ matrix.arch }} with OpenSSL v$opensslver" > release.txt
-          echo "" > release.txt
+          echo "" >> release.txt
           
           # Fetch latest commit SHA and timestamp for smartdns
           SMARTDNS_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
