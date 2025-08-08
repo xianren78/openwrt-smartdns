@@ -125,22 +125,9 @@ jobs:
 
       - name: Update and install feeds in container
         run: |
-         docker exec sdk-build-${{ matrix.arch }} sh -c '
-            rm -rf /tmp/owrt
-            git clone --depth=1 --filter=blob:none --sparse https://github.com/openwrt/openwrt.git /tmp/owrt
-            [ -n "$OWRT_BRANCH" ] && git -C /tmp/owrt checkout "$OWRT_BRANCH" || true
-            git -C /tmp/owrt sparse-checkout set scripts
-            rm -rf ./scripts && mkdir -p ./scripts
-            cp -a /tmp/owrt/scripts/* ./scripts/
-            chmod +x ./scripts/feeds
-            echo "✅ synced scripts/ from OpenWrt ($OWRT_BRANCH)"
-         '
-         docker exec sdk-build-${{ matrix.arch }} sh -c 'wget -O feeds.conf https://github.com/openwrt/openwrt/raw/refs/heads/main/feeds.conf.default'
-         docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
-         docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
-
-      - name: Clone smartdns source into feeds in container
-        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cd /builder"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
           docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci/applications/luci-app-smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
