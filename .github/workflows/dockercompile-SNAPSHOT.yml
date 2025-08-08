@@ -124,16 +124,18 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
       - name: Update and install feeds in container
         run: |
-          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci && git clone --depth=1 https://github.com/openwrt/luci.git feeds/luci"
       - name: Clone smartdns source into feeds in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci/applications/luci-app-smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p package/feeds/packages/net"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf ../../../../feeds/packages/net/smartdns package/feeds/packages/net/smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c 'mkdir -p package/feeds/luci && ln -sf ../../../feeds/luci/applications/luci-app-smartdns package/feeds/luci/luci-app-smartdns'
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
       - name: Configure build with custom OpenSSL in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
