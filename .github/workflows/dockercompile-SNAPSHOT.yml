@@ -137,6 +137,36 @@ jobs:
           docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc 'mkdir -p package/feeds/luci && ln -sf ../../../feeds/luci/applications/luci-app-smartdns package/feeds/luci/luci-app-smartdns'
           #docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "./scripts/feeds install -f smartdns"
           #docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "./scripts/feeds install -f luci-app-smartdns"
+
+# 探测容器内 SDK 根目录（含顶层 Makefile）
+      - name: Detect SDK root in container
+        run: |
+          set -e
+          CANDIDATES="/builder /workdir /workspace/openwrt-sdk /work/openwrt-sdk /openwrt /openwrt-sdk /root/openwrt-sdk"
+          FOUND=""
+          for d in $CANDIDATES; do
+            if docker exec sdk-build-${{ matrix.arch }} sh -lc "[ -f $d/Makefile ]"; then
+              FOUND="$d"; break
+            fi
+          done
+          if [ -z "$FOUND" ]; then
+            echo "❌ 未找到 SDK 顶层 Makefile。打印一些信息以排错："
+            docker exec sdk-build-${{ matrix.arch }} sh -lc 'pwd; ls -al /; ls -al ~ || true'
+            exit 1
+          fi
+          echo "SDKDIR=$FOUND" >> $GITHUB_ENV
+          echo "✅ Using SDKDIR=$FOUND"
+
+# 可选：自动探测 toolchain 目录（避免硬编码 gcc-XX.Y.Z）
+      - name: Detect toolchain dir in container
+        run: |
+          TOOLCHAIN_DIR=$(docker exec -w "$SDKDIR" sdk-build-${{ matrix.arch }} sh -lc 'ls -d staging_dir/toolchain-* 2>/dev/null | head -n1')
+          if [ -z "$TOOLCHAIN_DIR" ]; then
+            echo "❌ 未找到 toolchain 目录"; exit 1
+          fi
+          echo "TOOLCHAIN_DIR=$TOOLCHAIN_DIR" >> $GITHUB_ENV
+          echo "✅ TOOLCHAIN_DIR=$TOOLCHAIN_DIR"
+
       - name: Configure build with custom OpenSSL in container
         run: |
           docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
