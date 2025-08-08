@@ -124,22 +124,26 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
       - name: Update and install feeds in container
         run: |
-            docker exec sdk-build-${{ matrix.arch }} sh -c '
-                mkdir -p scripts &&
-                wget -qO scripts/feeds https://raw.githubusercontent.com/openwrt/openwrt/master/scripts/feeds &&
-                chmod +x scripts/feeds &&
-                echo "✅ scripts/feeds added"
-            '
-            docker exec sdk-build-${{ matrix.arch }} sh -c '
-                cat > feeds.conf <<EOF
-                src-link packages $PWD/feeds/packages
-                src-link luci     $PWD/feeds/luci
-                EOF
-                echo "✅ feeds.conf written:"
-                cat feeds.conf
-            '
-            docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
-            docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
+         docker exec sdk-build-${{ matrix.arch }} sh -c '
+            rm -rf /tmp/owrt
+            git clone --depth=1 --filter=blob:none --sparse https://github.com/openwrt/openwrt.git /tmp/owrt
+            [ -n "$OWRT_BRANCH" ] && git -C /tmp/owrt checkout "$OWRT_BRANCH" || true
+            git -C /tmp/owrt sparse-checkout set scripts
+            rm -rf ./scripts && mkdir -p ./scripts
+            cp -a /tmp/owrt/scripts/* ./scripts/
+            chmod +x ./scripts/feeds
+            echo "✅ synced scripts/ from OpenWrt ($OWRT_BRANCH)"
+         '
+         docker exec sdk-build-${{ matrix.arch }} sh -c '
+            cat > feeds.conf <<EOF
+            src-link packages $PWD/feeds/packages
+            src-link luci     $PWD/feeds/luci
+            EOF
+            echo "✅ feeds.conf written:"
+            cat feeds.conf
+         '
+         docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
+         docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
       - name: Clone smartdns source into feeds in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
