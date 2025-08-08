@@ -75,35 +75,6 @@ jobs:
           # Verify Docker installation
           docker --version
 
-      - name: Build OpenSSL 3.5 in Docker
-        id: build-openssl
-        run: |
-          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases | jq -r '[.[] | select(.tag_name | startswith("openssl-3.5")) | .tag_name] | sort | last | sub("openssl-"; "")')
-          if [ -z "$opensslver" ]; then
-            opensslver="3.5.2"
-          fi
-          echo "Build with OpenSSL version: $opensslver"
-          echo "opensslver=$opensslver" >> $GITHUB_OUTPUT
-          mkdir -p ${{ github.workspace }}/openssl
-          curl -sSL "https://github.com/openssl/openssl/releases/download/openssl-${opensslver}/openssl-${opensslver}.tar.gz" -o openssl.tar.gz
-          tar -zxvf openssl.tar.gz --strip-components=1 -C openssl
-          cd ${{ github.workspace }}
-          rm -f docker-openssl.sh
-          cat > docker-openssl.sh << EOF
-          apk add perl make coreutils tar pkgconfig dpkg binutils
-          cd /workdir/openssl
-          if [ "\$GOARCH" == "x86_64" ]; then
-            ./Configure no-tests linux-x86_64 enable-quic enable-ktls no-docs --prefix=/usr/local --libdir=lib
-          elif [ "\$GOARCH" == "aarch64" ]; then
-            ./Configure no-tests linux-aarch64 enable-quic enable-ktls no-docs --prefix=/usr/local --libdir=lib
-          fi
-          make clean && make -j\$(nproc)
-          make install_sw DESTDIR=/workdir/openssl-install
-          EOF
-          docker run -i --rm -v ${{ github.workspace }}:/workdir -e GOARCH=${{ matrix.goarch }} muslcc/x86_64:${{ matrix.goarch }}-linux-musl sh /workdir/docker-openssl.sh
-          # Debug: List installed OpenSSL files
-          #find ${{ github.workspace }}/openssl-install -type f
-
       - name: Pull OpenWrt SDK Docker image
         run: |
           docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-SNAPSHOT
@@ -134,14 +105,10 @@ jobs:
             chmod +x ./scripts/feeds
             echo "✅ synced scripts/ from OpenWrt ($OWRT_BRANCH)"
          '
-         docker exec sdk-build-${{ matrix.arch }} sh -c '
-            cat > feeds.conf <<EOF
+         docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > feeds.conf
             src-link packages $PWD/feeds/packages
             src-link luci     $PWD/feeds/luci
-            EOF
-            echo "✅ feeds.conf written:"
-            cat feeds.conf
-         '
+            EOF'
          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
       - name: Clone smartdns source into feeds in container
