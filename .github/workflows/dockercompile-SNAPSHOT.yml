@@ -132,14 +132,14 @@ jobs:
             '
             docker exec sdk-build-${{ matrix.arch }} sh -c '
                 cat > feeds.conf <<EOF
-src-link packages $PWD/feeds/packages
-src-link luci     $PWD/feeds/luci
-EOF
+                src-link packages $PWD/feeds/packages
+                src-link luci     $PWD/feeds/luci
+                EOF
                 echo "✅ feeds.conf written:"
                 cat feeds.conf
             '
-          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
+            docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
+            docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
       - name: Clone smartdns source into feeds in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
