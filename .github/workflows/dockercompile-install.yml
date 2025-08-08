@@ -76,12 +76,14 @@ jobs:
           docker --version
 
       - name: Build OpenSSL 3.5 in Docker
+        id: build-openssl
         run: |
           opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases | jq -r '[.[] | select(.tag_name | startswith("openssl-3.5")) | .tag_name] | sort | last | sub("openssl-"; "")')
           if [ -z "$opensslver" ]; then
             opensslver="3.5.2"
           fi
           echo "Build with OpenSSL version: $opensslver"
+          echo "opensslver=$opensslver" >> $GITHUB_OUTPUT
           mkdir -p ${{ github.workspace }}/openssl
           curl -sSL "https://github.com/openssl/openssl/releases/download/openssl-${opensslver}/openssl-${opensslver}.tar.gz" -o openssl.tar.gz
           tar -zxvf openssl.tar.gz --strip-components=1 -C openssl
@@ -173,7 +175,7 @@ jobs:
         run: |
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
           echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "for OpenWrt 24.10 ${{ matrix.arch }} with OpenSSL v${opensslver}" > release.txt
+          echo "for OpenWrt 24.10 ${{ matrix.arch }} with OpenSSL v${{ steps.build-openssl.outputs.opensslver }}" > release.txt
           echo "" >> release.txt
           
           # Fetch latest commit SHA and timestamp for smartdns
