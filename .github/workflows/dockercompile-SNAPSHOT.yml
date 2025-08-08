@@ -135,7 +135,7 @@ jobs:
             chmod +x ./scripts/feeds
             echo "✅ synced scripts/ from OpenWrt ($OWRT_BRANCH)"
          '
-         docker exec sdk-build-${{ matrix.arch }} sh -c 'wget -O feed.conf https://github.com/openwrt/openwrt/raw/refs/heads/main/feeds.conf.default'
+         docker exec sdk-build-${{ matrix.arch }} sh -c 'wget -O feeds/luci/applications/luci-app-smartdns.conf https://github.com/openwrt/openwrt/raw/refs/heads/main/feeds.conf.default'
          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
 
