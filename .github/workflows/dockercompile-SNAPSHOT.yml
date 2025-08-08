@@ -49,6 +49,7 @@ jobs:
       ARCH: ${{ matrix.arch }}
       GOARCH: ${{ matrix.goarch }}
       PKG_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
+      SDKDIR: /builder
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -113,43 +114,43 @@ jobs:
           docker start sdk-build-${{ matrix.arch }}
       - name: Install Rust in container
         run: |
-          docker exec sdk-build-${{ matrix.arch }} sh -c "apt-get update && apt-get install -y curl gcc make python3 git pkg-config nodejs clang llvm-dev libclang-dev"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "echo 'export PATH=/root/.cargo/bin:\$PATH' >> /root/.profile"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup toolchain install 1.89.0-x86_64-unknown-linux-gnu"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup default 1.89.0-x86_64-unknown-linux-gnu"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.rust_target }} --toolchain 1.89.0-x86_64-unknown-linux-gnu"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && node -v"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustc --version && cargo --version && npm --version"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc "apt-get update && apt-get install -y curl gcc make python3 git pkg-config nodejs clang llvm-dev libclang-dev"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc "echo 'export PATH=/root/.cargo/bin:\$PATH' >> /root/.profile"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc ". /root/.profile && rustup toolchain install 1.89.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc ". /root/.profile && rustup default 1.89.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc ". /root/.profile && rustup target add ${{ matrix.rust_target }} --toolchain 1.89.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && node -v"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc ". /root/.profile && rustc --version && cargo --version && npm --version"
+          docker exec sdk-build-${{ matrix.arch }} sh -lc ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
       - name: Update and install feeds in container
         run: |
-          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci && git clone --depth=1 https://github.com/openwrt/luci.git feeds/luci"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "rm -rf feeds/luci && git clone --depth=1 https://github.com/openwrt/luci.git feeds/luci"
       - name: Clone smartdns source into feeds in container
         run: |
-          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci/applications/luci-app-smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p package/feeds/packages/net"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf ../../../../feeds/packages/net/smartdns package/feeds/packages/net/smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c 'mkdir -p package/feeds/luci && ln -sf ../../../feeds/luci/applications/luci-app-smartdns package/feeds/luci/luci-app-smartdns'
-          #docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
-          #docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "rm -rf feeds/packages/net/smartdns"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "rm -rf feeds/luci/applications/luci-app-smartdns"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "mkdir -p package/feeds/packages/net"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "ln -sf ../../../../feeds/packages/net/smartdns package/feeds/packages/net/smartdns"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc 'mkdir -p package/feeds/luci && ln -sf ../../../feeds/luci/applications/luci-app-smartdns package/feeds/luci/luci-app-smartdns'
+          #docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "./scripts/feeds install -f smartdns"
+          #docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "./scripts/feeds install -f luci-app-smartdns"
       - name: Configure build with custom OpenSSL in container
         run: |
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp -r /workspace/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl.so"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto.so"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "cp -r /workspace/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "cp /workspace/openssl-install/usr/local/lib/libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "cp /workspace/openssl-install/usr/local/lib/libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "ln -sf libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl.so"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "ln -sf libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto.so"
           # Debug: Verify symbolic links
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl*"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto*"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/host/stamp && touch staging_dir/host/stamp/.rust_installed"
-          docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > .config
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl*"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto*"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "mkdir -p staging_dir/host/stamp && touch staging_dir/host/stamp/.rust_installed"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc 'cat <<EOF > .config
           CONFIG_PACKAGE_smartdns=y
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-compat=y
@@ -158,17 +159,18 @@ jobs:
           CONFIG_OPENSSL_WITH_QUIC=y
           CONFIG_TARGET_IMAGES=n
           EOF'
-          docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc 'ls -l Makefile && pwd'
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "make defconfig"
 
       - name: Build smartdns and luci-app-smartdns in container
         run: |
-          #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/smartdns/compile CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
-          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/luci-app-smartdns/compile"
+          #docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/smartdns/compile CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/luci-app-smartdns/compile"
           mkdir -p ${{ github.workspace }}/build
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.apk /workspace/build/ || true"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.apk /workspace/build/ || true"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns*.apk /workspace/build/ || true"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.apk /workspace/build/ || true"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.apk /workspace/build/ || true"
+          docker exec -w $SDKDIR sdk-build-${{ matrix.arch }} sh -lc "cp bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns*.apk /workspace/build/ || true"
           # Verify build outputs
           ls -l ${{ github.workspace }}/build/
 
