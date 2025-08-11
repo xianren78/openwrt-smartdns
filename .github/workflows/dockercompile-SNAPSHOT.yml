@@ -1,4 +1,4 @@
-name: docker build luci-app-smartdns and smartdns
+name: SNAPSHOT docker build luci-app-smartdns and smartdns
 on:
   push:
     branches:
@@ -166,8 +166,8 @@ jobs:
       - name: Build smartdns and luci-app-smartdns in container
         run: |
           #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/smartdns/compile CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
-          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/luci-app-smartdns/compile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/smartdns/compile V=s CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
+          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/luci-app-smartdns/compile V=s"
           mkdir -p ${{ github.workspace }}/build
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.apk /workspace/build/ || true"
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.apk /workspace/build/ || true"
