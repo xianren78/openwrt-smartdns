@@ -44,6 +44,7 @@ jobs:
             sed -nE "s/^[[:space:]]*${key}[[:space:]]*(:|\\+|\\?)?=[[:space:]]*([^#]*)[[:space:]]*.*$/\\2/p" "$MF" | head -n1 \
             | sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/^"(.*)"$/\1/; s/^\x27(.*)\x27$/\1/'
           }
+
           PKG_NAME="$(get_val 'PKG_NAME')"
           PKG_VERSION="$(get_val 'PKG_VERSION')"
           PKG_SOURCE_PROTO="$(get_val 'PKG_SOURCE_PROTO')"
@@ -137,6 +138,7 @@ jobs:
           git -C pkg_repo archive --format=tar --prefix="$PREFIX" "$COMMIT" -o pkg_tree.tar
           tar -C pkg_stage -xf pkg_tree.tar
 
+          # 展平子模块（如有）
           if [ -f pkg_repo/.gitmodules ]; then
             git -C pkg_repo submodule update --init --recursive
             while IFS= read -r name; do
@@ -146,14 +148,18 @@ jobs:
               dst="pkg_stage/${PREFIX}${path}"
               mkdir -p "$dst"
               rsync -a --delete --exclude '.git' --exclude '.gitmodules' "pkg_repo/${path}/" "$dst/"
-            done < <(git -C pkg_repo config --file .gitmodules --name-only --get-regexp 'submodule\..*\.path' \
-                    | sed -E 's/^submodule\.(.+)\.path$/\1/')
+            done < <(
+              git -C pkg_repo config --file .gitmodules --name-only --get-regexp 'submodule\..*\.path' \
+              | sed -E 's/^submodule\.(.+)\.path$/\1/'
+            )
           fi
 
           OUT="source-${NAME}-${VER}-${COMMIT}.tar.xz"
           tar --numeric-owner --owner=0 --group=0 --mode=a-s \
               --sort=name --mtime="@${TS}" \
               -C pkg_stage -c "${PREFIX%/}" | xz -zc -7e > "$OUT"
+
+          [ -s "$OUT" ] || { echo "Archive not created: $OUT"; ls -l; exit 1; }
 
           SHA_PKG=$(sha256sum "$OUT" | awk '{print $1}')
           echo "sha_pkg=$SHA_PKG" >> "$GITHUB_OUTPUT"
@@ -198,14 +204,18 @@ jobs:
               dst="webui_stage/${PREFIX}${path}"
               mkdir -p "$dst"
               rsync -a --delete --exclude '.git' --exclude '.gitmodules' "webui_repo/${path}/" "$dst/"
-            done < <(git -C webui_repo config --file .gitmodules --name-only --get-regexp 'submodule\..*\.path' \
-                    | sed -E 's/^submodule\.(.+)\.path$/\1/')
+            done < <(
+              git -C webui_repo config --file .gitmodules --name-only --get-regexp 'submodule\..*\.path' \
+              | sed -E 's/^submodule\.(.+)\.path$/\1/'
+            )
           fi
 
           OUT="${FILE:-smartdns-webui-${VER}.tar.gz}"
           tar --numeric-owner --owner=0 --group=0 --mode=a-s \
               --sort=name --mtime="@${TS}" \
               -C webui_stage -c "${PREFIX%/}" | gzip -n > "$OUT"
+
+          [ -s "$OUT" ] || { echo "Archive not created: $OUT"; ls -l; exit 1; }
 
           SHA_WEBUI=$(sha256sum "$OUT" | awk '{print $1}')
           echo "sha_webui=$SHA_WEBUI" >> "$GITHUB_OUTPUT"
@@ -225,7 +235,7 @@ jobs:
           # 2) 更新 PKG_MIRROR_HASH（仅首个匹配）；用竖线分隔避免与值中的 / 冲突
           sed -i -E "0,/^[[:space:]]*PKG_MIRROR_HASH[[:space:]]*:=.*/s|.*|PKG_MIRROR_HASH:=${SHA_PKG}|" "$MF"
 
-          # 3) 仅在 Download/smartdns-webui 段内更新 MIRROR_HASH；用 awk sub 保证不受 / 影响
+          # 3) 仅在 Download/smartdns-webui 段内更新 MIRROR_HASH；awk sub 不受 / 影响
           awk -v hash="$SHA_WEBUI" '
             BEGIN{in_webui=0}
             {
