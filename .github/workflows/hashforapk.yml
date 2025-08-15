@@ -47,55 +47,79 @@ jobs:
 
       - name: Calculate PKG_MIRROR_HASH for smartdns
         run: |
+          # Create temporary directory
+          mkdir -p tmp/dl
+          
           # Clone smartdns repository
-          git clone "${PKG_SOURCE_URL}" smartdns
-          cd smartdns
+          git clone "${PKG_SOURCE_URL}" tmp/dl/smartdns
+          cd tmp/dl/smartdns
           git checkout "${PKG_SOURCE_VERSION}"
-          git submodule update --init --recursive
+          git config core.abbrev 8
           
           # Get timestamp from git commit
           export TAR_TIMESTAMP=$(git log -1 --format='@%ct')
           
-          # Remove .git directory
+          # Create git archive
+          git archive --format=tar HEAD --output=../smartdns.tar.git
+          
+          # Append .git and .gitmodules (if they exist)
+          tar --numeric-owner --owner=0 --group=0 --ignore-failed-read -C . -f ../smartdns.tar.git -r .git .gitmodules 2>/dev/null
+          
+          # Extract archive and update submodules
+          rm -rf ./*
+          tar -xf ../smartdns.tar.git
+          git submodule update --init --recursive
           rm -rf .git .gitmodules
           
-          # Create tar.xz archive with OpenWrt-specific options
+          # Create final tar.xz archive
           tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
-            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c . | xz -zc -7e > "../${PKG_NAME}-${PKG_VERSION}.tar.xz"
+            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c . | xz -zc -7e > "../../${PKG_NAME}-${PKG_VERSION}.tar.xz"
           
           # Calculate SHA256 hash
-          PKG_MIRROR_HASH=$(sha256sum "../${PKG_NAME}-${PKG_VERSION}.tar.xz" | cut -d ' ' -f1)
+          PKG_MIRROR_HASH=$(sha256sum "../../${PKG_NAME}-${PKG_VERSION}.tar.xz" | cut -d ' ' -f1)
           echo "PKG_MIRROR_HASH=$PKG_MIRROR_HASH" >> $GITHUB_ENV
           
           # Clean up
-          cd ..
-          rm -rf smartdns "${PKG_NAME}-${PKG_VERSION}.tar.xz"
+          cd ../..
+          rm -rf tmp/dl "${PKG_NAME}-${PKG_VERSION}.tar.xz"
 
       - name: Calculate MIRROR_HASH for smartdns-webui
         run: |
+          # Create temporary directory
+          mkdir -p tmp/dl
+          
           # Clone smartdns-webui repository
-          git clone "${SMARTDNS_WEBUI_SOURCE_URL}" smartdns-webui
-          cd smartdns-webui
+          git clone "${SMARTDNS_WEBUI_SOURCE_URL}" tmp/dl/smartdns-webui
+          cd tmp/dl/smartdns-webui
           git checkout "${SMARTDNS_WEBUI_SOURCE_VERSION}"
-          git submodule update --init --recursive
+          git config core.abbrev 8
           
           # Get timestamp from git commit
           export TAR_TIMESTAMP=$(git log -1 --format='@%ct')
           
-          # Remove .git directory
+          # Create git archive
+          git archive --format=tar HEAD --output=../smartdns-webui.tar.git
+          
+          # Append .git and .gitmodules (if they exist)
+          tar --numeric-owner --owner=0 --group=0 --ignore-failed-read -C . -f ../smartdns-webui.tar.git -r .git .gitmodules 2>/dev/null
+          
+          # Extract archive and update submodules
+          rm -rf ./*
+          tar -xf ../smartdns-webui.tar.git
+          git submodule update --init --recursive
           rm -rf .git .gitmodules
           
-          # Create tar.gz archive with OpenWrt-specific options
+          # Create final tar.gz archive
           tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
-            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c . | gzip -nc > "../${SMARTDNS_WEBUI_FILE}"
+            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c . | gzip -nc > "../../${SMARTDNS_WEBUI_FILE}"
           
           # Calculate SHA256 hash
-          WEBUI_MIRROR_HASH=$(sha256sum "../${SMARTDNS_WEBUI_FILE}" | cut -d ' ' -f1)
+          WEBUI_MIRROR_HASH=$(sha256sum "../../${SMARTDNS_WEBUI_FILE}" | cut -d ' ' -f1)
           echo "WEBUI_MIRROR_HASH=$WEBUI_MIRROR_HASH" >> $GITHUB_ENV
           
           # Clean up
-          cd ..
-          rm -rf smartdns-webui "${SMARTDNS_WEBUI_FILE}"
+          cd ../..
+          rm -rf tmp/dl "${SMARTDNS_WEBUI_FILE}"
 
       - name: Update Makefile.apk
         run: |
