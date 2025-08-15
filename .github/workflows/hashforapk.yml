@@ -36,8 +36,8 @@ jobs:
           PKG_VERSION=$(grep '^PKG_VERSION:=' Makefile.apk | sed 's/PKG_VERSION:=//')
           SMARTDNS_WEBUI_VERSION=$(grep '^SMARTDNS_WEBUI_VERSION:=' Makefile.apk | sed 's/SMARTDNS_WEBUI_VERSION:=//')
           SMARTDNS_WEBUI_FILE=$(grep '^SMARTDNS_WEBUI_FILE:=' Makefile.apk | sed 's/SMARTDNS_WEBUI_FILE:=//')
-          SMARTDNS_SUBDIR=$(grep '^PKG_NAME:=' Makefile.apk | sed 's/PKG_NAME:=//')-$(grep '^PKG_VERSION:=' Makefile.apk | sed 's/PKG_VERSION:=//')
-          WEBUI_SUBDIR=$(grep '^SUBDIR:=.*smartdns-webui' Makefile.apk | sed 's/SUBDIR:=//')
+          SMARTDNS_SUBDIR="${PKG_NAME}-${PKG_VERSION}"
+          WEBUI_SUBDIR="smartdns-webui"
           [ -n "$PKG_SOURCE_URL" ] || { echo "Error: PKG_SOURCE_URL not found"; exit 1; }
           [ -n "$PKG_SOURCE_VERSION" ] || { echo "Error: PKG_SOURCE_VERSION not found"; exit 1; }
           [ -n "$SMARTDNS_WEBUI_SOURCE_URL" ] || { echo "Error: SMARTDNS_WEBUI_SOURCE_URL not found"; exit 1; }
@@ -46,7 +46,17 @@ jobs:
           [ -n "$PKG_VERSION" ] || { echo "Error: PKG_VERSION not found"; exit 1; }
           [ -n "$SMARTDNS_WEBUI_VERSION" ] || { echo "Error: SMARTDNS_WEBUI_VERSION not found"; exit 1; }
           [ -n "$SMARTDNS_WEBUI_FILE" ] || { echo "Error: SMARTDNS_WEBUI_FILE not found"; exit 1; }
-          [ -n "$WEBUI_SUBDIR" ] || { echo "Error: WEBUI_SUBDIR not found"; exit 1; }
+          echo "Extracted variables:"
+          echo "PKG_SOURCE_URL=$PKG_SOURCE_URL"
+          echo "PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION"
+          echo "SMARTDNS_WEBUI_SOURCE_URL=$SMARTDNS_WEBUI_SOURCE_URL"
+          echo "SMARTDNS_WEBUI_SOURCE_VERSION=$SMARTDNS_WEBUI_SOURCE_VERSION"
+          echo "PKG_NAME=$PKG_NAME"
+          echo "PKG_VERSION=$PKG_VERSION"
+          echo "SMARTDNS_WEBUI_VERSION=$SMARTDNS_WEBUI_VERSION"
+          echo "SMARTDNS_WEBUI_FILE=$SMARTDNS_WEBUI_FILE"
+          echo "SMARTDNS_SUBDIR=$SMARTDNS_SUBDIR"
+          echo "WEBUI_SUBDIR=$WEBUI_SUBDIR"
           echo "PKG_SOURCE_URL=$PKG_SOURCE_URL" >> $GITHUB_ENV
           echo "PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION" >> $GITHUB_ENV
           echo "SMARTDNS_WEBUI_SOURCE_URL=$SMARTDNS_WEBUI_SOURCE_URL" >> $GITHUB_ENV
@@ -94,6 +104,7 @@ jobs:
           
           # Calculate SHA256 hash
           PKG_MIRROR_HASH=$(sha256sum "../${SMARTDNS_SUBDIR}.tar.xz" | cut -d ' ' -f1) || { echo "Error: Failed to calculate SHA256 hash"; exit 1; }
+          echo "Calculated PKG_MIRROR_HASH=$PKG_MIRROR_HASH"
           echo "PKG_MIRROR_HASH=$PKG_MIRROR_HASH" >> $GITHUB_ENV
           
           # Clean up
@@ -135,6 +146,7 @@ jobs:
           
           # Calculate SHA256 hash
           WEBUI_MIRROR_HASH=$(sha256sum "../${SMARTDNS_WEBUI_FILE}" | cut -d ' ' -f1) || { echo "Error: Failed to calculate SHA256 hash"; exit 1; }
+          echo "Calculated WEBUI_MIRROR_HASH=$WEBUI_MIRROR_HASH"
           echo "WEBUI_MIRROR_HASH=$WEBUI_MIRROR_HASH" >> $GITHUB_ENV
           
           # Clean up
