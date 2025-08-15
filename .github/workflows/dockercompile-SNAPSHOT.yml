@@ -143,6 +143,80 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
+      - name: Resolve and patch PKG_MIRROR_HASH & webui MIRROR_HASH via SDK mkhash
+        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c '
+            set -e
+            cd /builder
+
+            MF="feeds/packages/net/smartdns/Makefile"
+
+            # 1) 先按 OpenWrt 规则下载主包和 webui 的源（到 dl/）
+            make package/smartdns/download V=s
+
+            # 2) 计算主包（smartdns）的 mirror hash（git 源会被打成 tar.gz 放到 dl/）
+            #    优先根据 PKG_NAME 推断；若文件名变化，则取 dl/ 下与 smartdns 相关的最新 tar.gz
+            main_tar=$(ls -1t dl/*smartdns*tar.gz 2>/dev/null | head -n1 || true)
+            if [ -z "$main_tar" ] || [ ! -f "$main_tar" ]; then
+              echo "ERROR: cannot locate smartdns source tarball in dl/"; ls -l dl || true; exit 1
+            fi
+            if [ -x staging_dir/host/bin/mkhash ]; then
+              main_sha=$(staging_dir/host/bin/mkhash sha256 "$main_tar")
+            else
+              main_sha=$(sha256sum "$main_tar" | awk "{print \$1}")
+            fi
+            echo "smartdns PKG_MIRROR_HASH = $main_sha (file: $(basename "$main_tar"))"
+
+            # 回写/追加 PKG_MIRROR_HASH（统一 := 形式）
+            if grep -q "^PKG_MIRROR_HASH:=" "$MF"; then
+              sed -i -E "s/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=$main_sha/" "$MF"
+            else
+              # 若 Makefile 里还没有，追加到 PKG_SOURCE_* 之后较合适
+              awk -v sha="$main_sha" "
+                { print }
+                /^PKG_SOURCE_VERSION:=/ && !p { print \"PKG_MIRROR_HASH:=\" sha; p=1 }
+              " "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+            fi
+
+            # 3) 计算 webui 的 mirror hash：dl/smartdns-webui-*.tar.gz
+            webui_tar=$(ls -1t dl/smartdns-webui-*.tar.gz 2>/dev/null | head -n1 || true)
+            if [ -z "$webui_tar" ] || [ ! -f "$webui_tar" ]; then
+              echo "ERROR: cannot locate smartdns-webui tarball in dl/"; ls -l dl || true; exit 1
+            fi
+            if [ -x staging_dir/host/bin/mkhash ]; then
+              webui_sha=$(staging_dir/host/bin/mkhash sha256 "$webui_tar")
+            else
+              webui_sha=$(sha256sum "$webui_tar" | awk "{print \$1}")
+            fi
+            echo "smartdns-webui MIRROR_HASH = $webui_sha (file: $(basename "$webui_tar"))"
+
+            # 回写 Download/smartdns-webui 块中的 MIRROR_HASH := ...
+            # 注意：用最小范围替换，避免误改其他段
+            awk -v sha="$webui_sha" "
+              BEGIN{inblk=0}
+              /^define[[:space:]]+Download\/smartdns-webui/ {inblk=1}
+              inblk && /^[[:space:]]*MIRROR_HASH[[:space:]]*:=/ { sub(/:=.*/,\":= \" sha \"\"); }
+              {print}
+              inblk && /^endef/ {inblk=0}
+            " "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+
+            # 4) 维护 SMARTDNS_WEBUI_HASH 变量（HASH:=$(SMARTDNS_WEBUI_HASH) 需要它）
+            if grep -q "^SMARTDNS_WEBUI_HASH:=" "$MF"; then
+              sed -i -E "s/^SMARTDNS_WEBUI_HASH:=.*/SMARTDNS_WEBUI_HASH:=$webui_sha/" "$MF"
+            else
+              # 插到 SMARTDNS_WEBUI_FILE 定义后面更直观；没有就放在 SMARTDNS_WEBUI_VERSION 后面
+              if grep -n "^SMARTDNS_WEBUI_FILE:=" "$MF" >/dev/null; then
+                line=$(grep -n "^SMARTDNS_WEBUI_FILE:=" "$MF" | head -n1 | cut -d: -f1)
+              else
+                line=$(grep -n "^SMARTDNS_WEBUI_VERSION:=" "$MF" | head -n1 | cut -d: -f1)
+              fi
+              awk -v ln="$line" -v sha="$webui_sha" "NR==ln{print; print \"SMARTDNS_WEBUI_HASH:=\" sha; next} {print}" "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+            fi
+
+            echo \"--- After patch ---\"
+            grep -E \"^(PKG_MIRROR_HASH|SMARTDNS_WEBUI_HASH):=\" \"$MF\" || true
+            awk \"/^define[[:space:]]+Download\\/smartdns-webui/{f=1} f&&/^\\s*MIRROR_HASH/{print} f&&/^endef/{f=0}\" \"$MF\" || true
+          '
       - name: Configure build with custom OpenSSL in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
