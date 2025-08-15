@@ -25,49 +25,59 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq xz-utils git
 
-      - name: Parse variables from Makefile.apk (strict)
+      - name: Parse variables from Makefile.apk (robust)
         id: parse
         run: |
-          set -e
+          set -euo pipefail
           MF=Makefile.apk
           [ -f "$MF" ] || { echo "Makefile.apk not found"; exit 1; }
 
-          # 仅匹配 “键 := 值” 的形式；不吞掉 URL 中的冒号
+          # 兼容 CRLF
+          if file "$MF" | grep -qi 'CRLF'; then
+            sed -i 's/\r$//' "$MF"
+          fi
+
+          # 提取函数：支持  =  :=  ?=  +=；忽略前导空白与注释；去掉尾部注释与引号
           get_val() {
             local key="$1"
-            sed -nE "s|^[[:space:]]*${key}[[:space:]]*:=[[:space:]]*||p" "$MF" | head -n1
+            sed -nE "s|^[[:space:]]*${key}[[:space:]]*(:|\\+|\\?)?=[[:space:]]*([^#]*)[[:space:]]*.*$|\\2|p" "$MF" | head -n1 \
+            | sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/'
           }
 
           PKG_NAME="$(get_val 'PKG_NAME')"
           PKG_VERSION="$(get_val 'PKG_VERSION')"
+          PKG_SOURCE_PROTO="$(get_val 'PKG_SOURCE_PROTO')"
           PKG_SOURCE_URL="$(get_val 'PKG_SOURCE_URL')"
           PKG_SOURCE_VERSION="$(get_val 'PKG_SOURCE_VERSION')"
 
           WEBUI_VERSION="$(get_val 'SMARTDNS_WEBUI_VERSION')"
-          WEBUI_URL="$(get_val 'SMARTDNS_WEBUI_SOURCE_URL')"
-          WEBUI_COMMIT="$(get_val 'SMARTDNS_WEBUI_SOURCE_VERSION')"
+          WEBUI_SOURCE_PROTO="$(get_val 'SMARTDNS_WEBUI_SOURCE_PROTO')"
+          WEBUI_SOURCE_URL="$(get_val 'SMARTDNS_WEBUI_SOURCE_URL')"
+          WEBUI_SOURCE_VERSION="$(get_val 'SMARTDNS_WEBUI_SOURCE_VERSION')"
           WEBUI_FILE="$(get_val 'SMARTDNS_WEBUI_FILE')"
 
-          # 去掉可能的引号与结尾注释
-          strip_q() { echo "$1" | sed -E 's/[[:space:]]+#.*$//' | sed -E 's/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/'; }
+          # 输出来给后续 steps 用
+          {
+            echo "pkg_name=$PKG_NAME"
+            echo "pkg_ver=$PKG_VERSION"
+            echo "pkg_proto=$PKG_SOURCE_PROTO"
+            echo "pkg_url=$PKG_SOURCE_URL"
+            echo "pkg_commit=$PKG_SOURCE_VERSION"
+            echo "webui_ver=$WEBUI_VERSION"
+            echo "webui_proto=$WEBUI_SOURCE_PROTO"
+            echo "webui_url=$WEBUI_SOURCE_URL"
+            echo "webui_commit=$WEBUI_SOURCE_VERSION"
+            echo "webui_file=$WEBUI_FILE"
+          } >> "$GITHUB_OUTPUT"
 
-          PKG_NAME="$(strip_q "$PKG_NAME")"
-          PKG_VERSION="$(strip_q "$PKG_VERSION")"
-          PKG_SOURCE_URL="$(strip_q "$PKG_SOURCE_URL")"
-          PKG_SOURCE_VERSION="$(strip_q "$PKG_SOURCE_VERSION")"
-          WEBUI_VERSION="$(strip_q "$WEBUI_VERSION")"
-          WEBUI_URL="$(strip_q "$WEBUI_URL")"
-          WEBUI_COMMIT="$(strip_q "$WEBUI_COMMIT")"
-          WEBUI_FILE="$(strip_q "$WEBUI_FILE")"
-
-          echo "pkg_name=$PKG_NAME"             >> $GITHUB_OUTPUT
-          echo "pkg_ver=$PKG_VERSION"           >> $GITHUB_OUTPUT
-          echo "pkg_url=$PKG_SOURCE_URL"        >> $GITHUB_OUTPUT
-          echo "pkg_commit=$PKG_SOURCE_VERSION" >> $GITHUB_OUTPUT
-          echo "webui_ver=$WEBUI_VERSION"       >> $GITHUB_OUTPUT
-          echo "webui_url=$WEBUI_URL"           >> $GITHUB_OUTPUT
-          echo "webui_commit=$WEBUI_COMMIT"     >> $GITHUB_OUTPUT
-          echo "webui_file=$WEBUI_FILE"         >> $GITHUB_OUTPUT
+          # 便于排错的日志（不会泄露 token）
+          echo "::group::Parsed values"
+          awk -v k1="PKG_SOURCE_PROTO" -v k2="SMARTDNS_WEBUI_SOURCE_PROTO" '
+            $0 ~ k1 || $0 ~ k2 { print NR ":" $0 }
+          ' "$MF" || true
+          echo "PKG_SOURCE_PROTO=${PKG_SOURCE_PROTO}"
+          echo "SMARTDNS_WEBUI_SOURCE_PROTO=${WEBUI_SOURCE_PROTO}"
+          echo "::endgroup::"
 
       - name: Normalize repo URLs (https scheme, GitHub)
         id: norm
