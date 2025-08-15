@@ -28,7 +28,7 @@ PKG_BUILD_PARALLEL:=1
 
 # node compile is slow, so do not use it, download node manually.
 # PACKAGE_smartdns-ui:node/host
-#PKG_BUILD_DEPENDS:=PACKAGE_smartdns-ui:rust/host 
+PKG_BUILD_DEPENDS:=PACKAGE_smartdns-ui:rust/host 
 
 include ../../lang/rust/rust-package.mk
 include $(INCLUDE_DIR)/package.mk
@@ -74,8 +74,8 @@ define Package/smartdns/install
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/custom.conf $(1)/etc/smartdns/custom.conf
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/files/etc/config/smartdns $(1)/etc/config/smartdns
 	$(INSTALL_DIR) $(1)/usr/lib/smartdns
-	$(CP) /workspace/openssl-install/usr/local/lib/libssl.so.3 $(1)/usr/lib/smartdns/
-	$(CP) /workspace/openssl-install/usr/local/lib/libcrypto.so.3 $(1)/usr/lib/smartdns/
+	$(CP) $(TOPDIR)/../openssl-install/usr/local/lib/libssl.so.3 $(1)/usr/lib/smartdns/
+	$(CP) $(TOPDIR)/../openssl-install/usr/local/lib/libcrypto.so.3 $(1)/usr/lib/smartdns/
 endef
 
 define Package/smartdns-ui

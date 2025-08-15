@@ -1,0 +1,59 @@
+name: Monitor luci-app-smartdns for New Commits
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '18 2 * * *'   # ⚠️ UTC 时间
+  workflow_dispatch:
+
+jobs:
+  check-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository (use PAT to allow triggering downstream workflows)
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_WORKFLOW }}   # 使用你创建的 PAT（含 repo + workflow）
+          persist-credentials: true
+
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Get current luci-app-smartdns version from file
+        id: get-current
+        run: |
+          if [ -f "luci-app-smartdns.version" ]; then
+            CURRENT_LUCI_VERSION=$(cat luci-app-smartdns.version)
+          else
+            CURRENT_LUCI_VERSION=""
+          fi
+          echo "CURRENT_LUCI_VERSION=$CURRENT_LUCI_VERSION" >> $GITHUB_ENV
+
+      - name: Get latest commit SHA from luci-app-smartdns repo
+        id: get-luci
+        run: |
+          LATEST_LUCI_COMMIT=$(curl -s -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/pymumu/luci-app-smartdns/commits/master \
+            | jq -r '.sha // empty')
+          if [ -z "$LATEST_LUCI_COMMIT" ]; then
+            echo "Failed to fetch latest commit from pymumu/luci-app-smartdns" >&2
+            exit 1
+          fi
+          echo "LATEST_LUCI_COMMIT=$LATEST_LUCI_COMMIT" >> $GITHUB_ENV
+
+      - name: Commit update if new commit detected
+        if: ${{ env.CURRENT_LUCI_VERSION != env.LATEST_LUCI_COMMIT }}
+        run: |
+          set -e
+          echo "${{ env.LATEST_LUCI_COMMIT }}" > luci-app-smartdns.version
+          git add luci-app-smartdns.version
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git commit -m "chore: trigger CI due to new luci-app-smartdns commit ${{
+            env.LATEST_LUCI_COMMIT }}"
+          git push origin HEAD:${{ github.ref_name }}
+          echo "Updated luci-app-smartdns.version to ${{ env.LATEST_LUCI_COMMIT }} and pushed to ${{ github.ref_name }}"
