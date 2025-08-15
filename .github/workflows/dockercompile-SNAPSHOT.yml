@@ -143,6 +143,31 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
+
+      - name: Configure build with custom OpenSSL in container
+        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp -r /workspace/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl.so"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto.so"
+          # Debug: Verify symbolic links
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl*"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto*"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/host/stamp && touch staging_dir/host/stamp/.rust_installed"
+          docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > .config
+          CONFIG_PACKAGE_smartdns=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-compat=y
+          CONFIG_PACKAGE_luci-app-smartdns=y
+          CONFIG_PACKAGE_libopenssl=n
+          CONFIG_OPENSSL_WITH_QUIC=y
+          CONFIG_TARGET_IMAGES=n
+          EOF'
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
+
       - name: Resolve and patch PKG_MIRROR_HASH & webui MIRROR_HASH via SDK mkhash
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c '
@@ -217,30 +242,6 @@ jobs:
             grep -E \"^(PKG_MIRROR_HASH|SMARTDNS_WEBUI_HASH):=\" \"$MF\" || true
             awk \"/^define[[:space:]]+Download\\/smartdns-webui/{f=1} f&&/^\\s*MIRROR_HASH/{print} f&&/^endef/{f=0}\" \"$MF\" || true
           '
-      - name: Configure build with custom OpenSSL in container
-        run: |
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp -r /workspace/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl.so"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto.so"
-          # Debug: Verify symbolic links
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl*"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto*"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/host/stamp && touch staging_dir/host/stamp/.rust_installed"
-          docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > .config
-          CONFIG_PACKAGE_smartdns=y
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-compat=y
-          CONFIG_PACKAGE_luci-app-smartdns=y
-          CONFIG_PACKAGE_libopenssl=n
-          CONFIG_OPENSSL_WITH_QUIC=y
-          CONFIG_TARGET_IMAGES=n
-          EOF'
-          docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
-
       - name: Build smartdns and luci-app-smartdns in container
         run: |
           #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
