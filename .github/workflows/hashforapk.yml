@@ -8,235 +8,111 @@ on:
     paths-ignore:
       - '.github/workflows/**'
   workflow_dispatch:
-concurrency:
-  group: update-mirror-hashes-${{ github.ref }}
-  cancel-in-progress: true
+
 jobs:
   update-hashes:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # Required for pushing changes
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Install needed tools
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y xz-utils git rsync file dos2unix
-      - name: Parse variables from Makefile.apk (robust)
-        id: parse
+          sudo apt-get install -y git xz-utils
+
+      - name: Extract variables from Makefile.apk
         run: |
-          set -euo pipefail
-          MF=Makefile.apk
-          [ -f "$MF" ] || { echo "Makefile.apk not found"; exit 1; }
-          # Convert line endings
-          dos2unix -q "$MF"
-          # 支持 = := ?= +=；忽略前导空白；截断行尾注释；去掉包裹引号
-          get_val() {
-            local key="$1"
-            sed -nE "s/^[[:space:]]*${key}[[:space:]]*(:|\\+|\\?)?=[[:space:]]*([^#]*)[[:space:]]*.*$/\\2/p" "$MF" | head -n1 \
-            | sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/^"(.*)"$/\1/; s/^\x27(.*)\x27$/\1/'
-          }
-          PKG_NAME="$(get_val 'PKG_NAME')"
-          PKG_VERSION="$(get_val 'PKG_VERSION')"
-          PKG_SOURCE_PROTO="$(get_val 'PKG_SOURCE_PROTO')"
-          PKG_SOURCE_URL="$(get_val 'PKG_SOURCE_URL')"
-          PKG_SOURCE_VERSION="$(get_val 'PKG_SOURCE_VERSION')"
-          WEBUI_VERSION="$(get_val 'SMARTDNS_WEBUI_VERSION')"
-          WEBUI_SOURCE_PROTO="$(get_val 'SMARTDNS_WEBUI_SOURCE_PROTO')"
-          WEBUI_SOURCE_URL="$(get_val 'SMARTDNS_WEBUI_SOURCE_URL')"
-          WEBUI_SOURCE_VERSION="$(get_val 'SMARTDNS_WEBUI_SOURCE_VERSION')"
-          WEBUI_FILE="$(get_val 'SMARTDNS_WEBUI_FILE')"
-          # Validate required variables
-          for var in PKG_NAME PKG_VERSION PKG_SOURCE_PROTO PKG_SOURCE_URL PKG_SOURCE_VERSION WEBUI_VERSION WEBUI_SOURCE_PROTO WEBUI_SOURCE_URL WEBUI_SOURCE_VERSION; do
-            val="$(get_val "$var")"
-            [ -n "$val" ] || { echo "Error: $var is empty or not defined in Makefile.apk"; exit 1; }
-          done
-          {
-            echo "pkg_name=$PKG_NAME"
-            echo "pkg_ver=$PKG_VERSION"
-            echo "pkg_proto=$PKG_SOURCE_PROTO"
-            echo "pkg_url=$PKG_SOURCE_URL"
-            echo "pkg_commit=$PKG_SOURCE_VERSION"
-            echo "webui_ver=$WEBUI_VERSION"
-            echo "webui_proto=$WEBUI_SOURCE_PROTO"
-            echo "webui_url=$WEBUI_SOURCE_URL"
-            echo "webui_commit=$WEBUI_SOURCE_VERSION"
-            echo "webui_file=$WEBUI_FILE"
-          } >> "$GITHUB_OUTPUT"
-          echo "::group::Parsed values"
-          awk -v k1="PKG_SOURCE_PROTO" -v k2="SMARTDNS_WEBUI_SOURCE_PROTO" '
-            $0 ~ k1 || $0 ~ k2 { print NR ":" $0 }
-          ' "$MF" || true
-          echo "PKG_SOURCE_PROTO=${PKG_SOURCE_PROTO}"
-          echo "SMARTDNS_WEBUI_SOURCE_PROTO=${WEBUI_SOURCE_PROTO}"
-          echo "::endgroup::"
-      - name: Normalize repo URLs (https scheme, GitHub)
-        id: norm
+          PKG_SOURCE_URL=$(grep '^PKG_SOURCE_URL:=' Makefile.apk | sed 's/PKG_SOURCE_URL:=//')
+          PKG_SOURCE_VERSION=$(grep '^PKG_SOURCE_VERSION:=' Makefile.apk | sed 's/PKG_SOURCE_VERSION:=//')
+          SMARTDNS_WEBUI_SOURCE_URL=$(grep '^SMARTDNS_WEBUI_SOURCE_URL:=' Makefile.apk | sed 's/SMARTDNS_WEBUI_SOURCE_URL:=//')
+          SMARTDNS_WEBUI_SOURCE_VERSION=$(grep '^SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile.apk | sed 's/SMARTDNS_WEBUI_SOURCE_VERSION:=//')
+          PKG_NAME=$(grep '^PKG_NAME:=' Makefile.apk | sed 's/PKG_NAME:=//')
+          PKG_VERSION=$(grep '^PKG_VERSION:=' Makefile.apk | sed 's/PKG_VERSION:=//')
+          SMARTDNS_WEBUI_VERSION=$(grep '^SMARTDNS_WEBUI_VERSION:=' Makefile.apk | sed 's/SMARTDNS_WEBUI_VERSION:=//')
+          SMARTDNS_WEBUI_FILE=$(grep '^SMARTDNS_WEBUI_FILE:=' Makefile.apk | sed 's/SMARTDNS_WEBUI_FILE:=//')
+          echo "PKG_SOURCE_URL=$PKG_SOURCE_URL" >> $GITHUB_ENV
+          echo "PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION" >> $GITHUB_ENV
+          echo "SMARTDNS_WEBUI_SOURCE_URL=$SMARTDNS_WEBUI_SOURCE_URL" >> $GITHUB_ENV
+          echo "SMARTDNS_WEBUI_SOURCE_VERSION=$SMARTDNS_WEBUI_SOURCE_VERSION" >> $GITHUB_ENV
+          echo "PKG_NAME=$PKG_NAME" >> $GITHUB_ENV
+          echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
+          echo "SMARTDNS_WEBUI_VERSION=$SMARTDNS_WEBUI_VERSION" >> $GITHUB_ENV
+          echo "SMARTDNS_WEBUI_FILE=$SMARTDNS_WEBUI_FILE" >> $GITHUB_ENV
+
+      - name: Calculate PKG_MIRROR_HASH for smartdns
         run: |
-          set -euo pipefail
-          norm() {
-            local u="$1"
-            # //github.com/owner/repo.git -> https://github.com/owner/repo.git
-            if echo "$u" | grep -qE '^//github\.com/'; then
-              u="https:${u}"
-            fi
-            # git@github.com:owner/repo.git -> https://github.com/owner/repo.git
-            if echo "$u" | grep -qE '^git@github\.com:'; then
-              u="https://github.com/$(echo "$u" | sed -E 's#^git@github\.com:##')"
-            fi
-            # github.com/owner/repo.git -> https://github.com/owner/repo.git
-            if echo "$u" | grep -qE '^github\.com/'; then
-              u="https://$u"
-            fi
-            echo "$u"
-          }
-          PKG_URL="$(norm '${{ steps.parse.outputs.pkg_url }}')"
-          WEBUI_URL="$(norm '${{ steps.parse.outputs.webui_url }}')"
-          echo "pkg_url_norm=$PKG_URL" >> "$GITHUB_OUTPUT"
-          echo "webui_url_norm=$WEBUI_URL" >> "$GITHUB_OUTPUT"
-          echo "Normalized PKG URL : $PKG_URL"
-          echo "Normalized WEBUI URL: $WEBUI_URL"
-      - name: Compute PKG_MIRROR_HASH (respect PKG_SOURCE_PROTO)
-        id: hash_pkg
+          # Clone smartdns repository
+          git clone "${PKG_SOURCE_URL}" smartdns
+          cd smartdns
+          git checkout "${PKG_SOURCE_VERSION}"
+          git submodule update --init --recursive
+          
+          # Get timestamp from git commit
+          export TAR_TIMESTAMP=$(git log -1 --format='@%ct')
+          
+          # Remove .git directory
+          rm -rf .git .gitmodules
+          
+          # Create tar.xz archive with OpenWrt-specific options
+          tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
+            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c . | xz -zc -7e > "../${PKG_NAME}-${PKG_VERSION}.tar.xz"
+          
+          # Calculate SHA256 hash
+          PKG_MIRROR_HASH=$(sha256sum "../${PKG_NAME}-${PKG_VERSION}.tar.xz" | cut -d ' ' -f1)
+          echo "PKG_MIRROR_HASH=$PKG_MIRROR_HASH" >> $GITHUB_ENV
+          
+          # Clean up
+          cd ..
+          rm -rf smartdns "${PKG_NAME}-${PKG_VERSION}.tar.xz"
+
+      - name: Calculate MIRROR_HASH for smartdns-webui
         run: |
-          set -euo pipefail
-          PROTO='${{ steps.parse.outputs.pkg_proto }}'
-          REPO='${{ steps.norm.outputs.pkg_url_norm }}'
-          COMMIT='${{ steps.parse.outputs.pkg_commit }}'
-          NAME='${{ steps.parse.outputs.pkg_name }}'
-          VER='${{ steps.parse.outputs.pkg_ver }}'
-          [ -n "$PROTO" ] || { echo "PKG_SOURCE_PROTO empty"; exit 1; }
-          [ -n "$REPO" ] || { echo "PKG_SOURCE_URL empty"; exit 1; }
-          [ -n "$COMMIT" ] || { echo "PKG_SOURCE_VERSION empty"; exit 1; }
-          if [ "$PROTO" != "git" ]; then
-            echo "Unsupported PKG_SOURCE_PROTO=$PROTO (only git implemented)"; exit 2
-          fi
-          git config --global core.autocrlf false
-          rm -rf pkg_repo pkg_stage pkg_tree.tar && mkdir -p pkg_stage
-          echo "::group::Cloning repository $REPO"
-          git clone --no-tags --depth=1 --filter=tree:0 "$REPO" pkg_repo || { echo "Failed to clone $REPO"; exit 1; }
-          git -C pkg_repo fetch origin "$COMMIT" --depth=1 || { echo "Failed to fetch commit $COMMIT"; exit 1; }
-          git -C pkg_repo checkout "$COMMIT" || { echo "Failed to checkout commit $COMMIT"; exit 1; }
-          echo "::endgroup::"
-          TS=$(git -C pkg_repo log -1 --format=%ct)
-          PREFIX="${NAME}-${VER}/"
-          git -C pkg_repo archive --format=tar --prefix="$PREFIX" "$COMMIT" -o pkg_tree.tar
-          tar -C pkg_stage -xf pkg_tree.tar
-          if [ -f pkg_repo/.gitmodules ]; then
-            echo "::group::Initializing submodules"
-            git -C pkg_repo submodule update --init --recursive || { echo "Failed to initialize submodules"; exit 1; }
-            while IFS= read -r name; do
-              [ -z "$name" ] && continue
-              path=$(git -C pkg_repo config --file .gitmodules "submodule.${name}.path" || true)
-              [ -z "$path" ] && continue
-              dst="pkg_stage/${PREFIX}${path}"
-              mkdir -p "$dst"
-              rsync -a --delete --exclude '.git' --exclude '.gitmodules' "pkg_repo/${path}/" "$dst/"
-            done < <(git -C pkg_repo config --file .gitmodules --name-only --get-regexp 'submodule\..*\.path' \
-                    | sed -E 's/^submodule\.(.+)\.path$/\1/')
-            echo "::endgroup::"
-          fi
-          OUT="source-${NAME}-${VER}-${COMMIT}.tar.xz"
-          tar --numeric-owner --owner=0 --group=0 --mode=a-s \
-              --sort=name --mtime="@${TS}" \
-              -C pkg_stage -c "${PREFIX%/}" | xz -zc -7e > "$OUT"
-          # Verify tarball
-          tar -tf "$OUT" | grep "^${PREFIX}" || { echo "Archive does not contain expected prefix ${PREFIX}"; exit 1; }
-          SHA_PKG=$(sha256sum "$OUT" | awk '{print $1}')
-          echo "sha_pkg=$SHA_PKG" >> "$GITHUB_OUTPUT"
-          echo "PKG_MIRROR_HASH: $SHA_PKG"
-      - name: Compute MIRROR_HASH for smartdns-webui (respect *_SOURCE_PROTO)
-        id: hash_webui
+          # Clone smartdns-webui repository
+          git clone "${SMARTDNS_WEBUI_SOURCE_URL}" smartdns-webui
+          cd smartdns-webui
+          git checkout "${SMARTDNS_WEBUI_SOURCE_VERSION}"
+          git submodule update --init --recursive
+          
+          # Get timestamp from git commit
+          export TAR_TIMESTAMP=$(git log -1 --format='@%ct')
+          
+          # Remove .git directory
+          rm -rf .git .gitmodules
+          
+          # Create tar.gz archive with OpenWrt-specific options
+          tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
+            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c . | gzip -nc > "../${SMARTDNS_WEBUI_FILE}"
+          
+          # Calculate SHA256 hash
+          WEBUI_MIRROR_HASH=$(sha256sum "../${SMARTDNS_WEBUI_FILE}" | cut -d ' ' -f1)
+          echo "WEBUI_MIRROR_HASH=$WEBUI_MIRROR_HASH" >> $GITHUB_ENV
+          
+          # Clean up
+          cd ..
+          rm -rf smartdns-webui "${SMARTDNS_WEBUI_FILE}"
+
+      - name: Update Makefile.apk
         run: |
-          set -euo pipefail
-          PROTO='${{ steps.parse.outputs.webui_proto }}'
-          REPO='${{ steps.norm.outputs.webui_url_norm }}'
-          COMMIT='${{ steps.parse.outputs.webui_commit }}'
-          VER='${{ steps.parse.outputs.webui_ver }}'
-          FILE='${{ steps.parse.outputs.webui_file }}'
-          [ -n "$PROTO" ] || { echo "SMARTDNS_WEBUI_SOURCE_PROTO empty"; exit 1; }
-          [ -n "$REPO" ] || { echo "SMARTDNS_WEBUI_SOURCE_URL empty"; exit 1; }
-          [ -n "$COMMIT" ] || { echo "SMARTDNS_WEBUI_SOURCE_VERSION empty"; exit 1; }
-          if [ "$PROTO" != "git" ]; then
-            echo "Unsupported WEBUI PROTO=$PROTO (only git implemented)"; exit 2
-          fi
-          git config --global core.autocrlf false
-          rm -rf webui_repo webui_stage webui_tree.tar && mkdir -p webui_stage
-          echo "::group::Cloning repository $REPO"
-          git clone --no-tags --depth=1 --filter=tree:0 "$REPO" webui_repo || { echo "Failed to clone $REPO"; exit 1; }
-          git -C webui_repo fetch origin "$COMMIT" --depth=1 || { echo "Failed to fetch commit $COMMIT"; exit 1; }
-          git -C webui_repo checkout "$COMMIT" || { echo "Failed to checkout commit $COMMIT"; exit 1; }
-          echo "::endgroup::"
-          TS=$(git -C webui_repo log -1 --format=%ct)
-          PREFIX="smartdns-webui-${VER}/"
-          git -C webui_repo archive --format=tar --prefix="$PREFIX" "$COMMIT" -o webui_tree.tar
-          tar -C webui_stage -xf webui_tree.tar
-          if [ -f webui_repo/.gitmodules ]; then
-            echo "::group::Initializing submodules"
-            git -C webui_repo submodule update --init --recursive || { echo "Failed to initialize submodules"; exit 1; }
-            while IFS= read -r name; do
-              [ -z "$name" ] && continue
-              path=$(git -C webui_repo config --file .gitmodules "submodule.${name}.path" || true)
-              [ -z "$path" ] && continue
-              dst="webui_stage/${PREFIX}${path}"
-              mkdir -p "$dst"
-              rsync -a --delete --exclude '.git' --exclude '.gitmodules' "webui_repo/${path}/" "$dst/"
-            done < <(git -C webui_repo config --file .gitmodules --name-only --get-regexp 'submodule\..*\.path' \
-                    | sed -E 's/^submodule\.(.+)\.path$/\1/')
-            echo "::endgroup::"
-          fi
-          OUT="${FILE:-smartdns-webui-${VER}.tar.gz}"
-          tar --numeric-owner --owner=0 --group=0 --mode=a-s \
-              --sort=name --mtime="@${TS}" \
-              -C webui_stage -c "${PREFIX%/}" | gzip -n > "$OUT"
-          # Verify tarball
-          tar -tf "$OUT" | grep "^${PREFIX}" || { echo "Archive does not contain expected prefix ${PREFIX}"; exit 1; }
-          SHA_WEBUI=$(sha256sum "$OUT" | awk '{print $1}')
-          echo "sha_webui=$SHA_WEBUI" >> "$GITHUB_OUTPUT"
-          echo "WEBUI MIRROR_HASH: $SHA_WEBUI"
-      - name: Update Makefile.apk with new hashes
-        id: patch
-        run: |
-          set -euo pipefail
-          MF=Makefile.apk
-          [ -f "$MF" ] || { echo "Makefile.apk not found"; exit 1; }
-          cp "$MF" "$MF.bak"
-          SHA_PKG='${{ steps.hash_pkg.outputs.sha_pkg }}'
-          SHA_WEBUI='${{ steps.hash_webui.outputs.sha_webui }}'
-          # 1) 统一写法：把 "MIRROR_HASH :=" 变为 "MIRROR_HASH:="
-          sed -i -E 's|^([[:space:]]*MIRROR_HASH)[[:space:]]*:=|\1:=|' "$MF"
-          # 2) 更新 PKG_MIRROR_HASH（仅首个匹配）；用竖线分隔避免与值中的 / 冲突
-          sed -i -E "0,/^[[:space:]]*PKG_MIRROR_HASH[[:space:]]*:=.*/s|.*|PKG_MIRROR_HASH:=${SHA_PKG}|" "$MF"
-          # 3) 仅在 Download/smartdns-webui 段内更新 MIRROR_HASH；用 awk sub 保证不受 / 影响
-          awk -v hash="$SHA_WEBUI" '
-            BEGIN{in_webui=0}
-            {
-              if ($0 ~ /^[[:space:]]*define[[:space:]]+Download\/smartdns-webui/) in_webui=1
-              if (in_webui && $0 ~ /^[[:space:]]*MIRROR_HASH[[:space:]]*:=/) {
-                sub(/:=.*/, ":= " hash)
-              }
-              print
-              if (in_webui && $0 ~ /^[[:space:]]*endef[[:space:]]*$/) in_webui=0
-            }' "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
-          # Validate updates
-          grep -q "PKG_MIRROR_HASH:=${SHA_PKG}" "$MF" || { echo "Failed to update PKG_MIRROR_HASH"; exit 1; }
-          grep -q "MIRROR_HASH:=${SHA_WEBUI}" "$MF" || { echo "Failed to update MIRROR_HASH in Download/smartdns-webui"; exit 1; }
-          echo "---- DIFF ----"
-          git --no-pager diff -- "$MF" || true
-          echo "--------------"
-          if git diff --quiet -- "$MF"; then
-            echo "no_change=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "no_change=false" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Commit & push
-        if: ${{ steps.patch.outputs.no_change == 'false' }}
+          # Update PKG_MIRROR_HASH
+          sed -i "s/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=$PKG_MIRROR_HASH/" Makefile.apk
+          
+          # Update MIRROR_HASH in Download/smartdns-webui section
+          sed -i "/define Download\/smartdns-webui/,/endef/ s/MIRROR_HASH :=.*/MIRROR_HASH := $WEBUI_MIRROR_HASH/" Makefile.apk
+
+      - name: Commit and push changes
         env:
           GITHUB_TOKEN: ${{ secrets.PAT_WORKFLOW }}
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git add Makefile.apk
-          git commit -m "chore: update PKG_MIRROR_HASH and webui MIRROR_HASH"
+          git commit -m "chore: update PKG_MIRROR_HASH and webui MIRROR_HASH" || exit 0
           for i in {1..3}; do
             git push origin HEAD:${{ github.ref_name }} && break
             echo "Push failed, retrying ($i/3)"
