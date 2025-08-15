@@ -99,62 +99,101 @@ jobs:
           echo "Normalized PKG URL : $PKG_URL"
           echo "Normalized WEBUI URL: $WEBUI_URL"
 
-      - name: Compute PKG_MIRROR_HASH (.tar.xz of smartdns)
+      - name: Compute PKG_MIRROR_HASH (respect PKG_SOURCE_PROTO)
         id: hash_pkg
         run: |
           set -euo pipefail
-          PKG_NAME='${{ steps.parse.outputs.pkg_name }}'
-          PKG_VERSION='${{ steps.parse.outputs.pkg_ver }}'
-          PKG_URL='${{ steps.norm.outputs.pkg_url_norm }}'
-          PKG_COMMIT='${{ steps.parse.outputs.pkg_commit }}'
+          PROTO='${{ steps.parse.outputs.pkg_proto }}'
+          REPO='${{ steps.norm.outputs.pkg_url_norm }}'
+          COMMIT='${{ steps.parse.outputs.pkg_commit }}'
+          NAME='${{ steps.parse.outputs.pkg_name }}'
+          VER='${{ steps.parse.outputs.pkg_ver }}'
 
-          # 仅支持 GitHub URL（如需扩展其它 git 源，可再加判断）
-          # 期望形如: https://github.com/<owner>/<repo>.git
-          REPO_GIT="$PKG_URL"
-          REPO_DIR=src_repo
-          ARCHIVE_PREFIX="${PKG_NAME}-${PKG_VERSION}/"
-          OUT_XZ="source-${PKG_NAME}-${PKG_VERSION}-${PKG_COMMIT}.tar.xz"
+          [ -n "$PROTO" ] || { echo "PKG_SOURCE_PROTO empty"; exit 1; }
+          [ -n "$REPO" ]  || { echo "PKG_SOURCE_URL empty";  exit 1; }
+          [ -n "$COMMIT" ]|| { echo "PKG_SOURCE_VERSION empty"; exit 1; }
+
+          if [ "$PROTO" != "git" ]; then
+            echo "Unsupported PKG_SOURCE_PROTO=$PROTO (only git implemented)"; exit 2
+          fi
 
           git config --global core.autocrlf false
-          git clone --no-tags --filter=tree:0 "$REPO_GIT" "$REPO_DIR"
-          git -C "$REPO_DIR" fetch origin "$PKG_COMMIT" --depth=1
-          git -C "$REPO_DIR" checkout "$PKG_COMMIT"
+          rm -rf pkg_repo pkg_stage && mkdir -p pkg_stage
+          git clone --no-tags --filter=tree:0 "$REPO" pkg_repo
+          git -C pkg_repo fetch origin "$COMMIT" --depth=1
+          git -C pkg_repo checkout "$COMMIT"
 
-          # 按 OpenWrt 常见做法：git archive + xz -7e（增强可重复性）
-          git -C "$REPO_DIR" archive --format=tar --prefix="$ARCHIVE_PREFIX" "$PKG_COMMIT" \
-            | xz -zc -7e > "$OUT_XZ"
+          # 取提交时间戳，用于 --mtime
+          TS=$(git -C pkg_repo log -1 --format=%ct)
 
-          SHA_PKG=$(sha256sum "$OUT_XZ" | awk '{print $1}')
+          # 先用 git archive 提取工作树（不含 .git）
+          # 前缀按 OpenWrt 习惯：<pkg>-<version>/
+          PREFIX="${NAME}-${VER}/"
+          git -C pkg_repo archive --format=tar --prefix="$PREFIX" "$COMMIT" -o pkg_tree.tar
+
+          # 解到 stage 目录
+          tar -C pkg_stage -xf pkg_tree.tar
+
+          # 如果有子模块，按 download.pl 的方式把内容拉进来再去掉 .git*（展平）
+          if [ -f pkg_repo/.gitmodules ]; then
+            git -C pkg_repo submodule update --init --recursive
+            # 将子模块内容复制到对应路径（和 download.pl 的“展平后再重新打包”一致）
+            while IFS= read -r path; do
+              [ -z "$path" ] && continue
+              # 去掉前缀后得到在 stage 内的相对路径
+              dst="pkg_stage/${PREFIX}${path}"
+              mkdir -p "$dst"
+              rsync -a --delete --exclude '.git' --exclude '.gitmodules' "pkg_repo/${path}/" "$dst/"
+            done < <(git -C pkg_repo config --file .gitmodules --name-only --get-regexp 'submodule\..*\.path' | sed -E 's/^submodule\.(.+)\.path$/\1/' | while read n; do git -C pkg_repo config --file .gitmodules "submodule.${n}.path"; done)
+          fi
+
+          # 重新打包：规范 owner/perm/sort/mtime，然后 .tar.xz（OpenWrt 源码包常用 xz）
+          OUT="source-${NAME}-${VER}-${COMMIT}.tar.xz"
+          tar --numeric-owner --owner=0 --group=0 --mode=a-s \
+              --sort=name --mtime="@${TS}" \
+              -C pkg_stage -c "${PREFIX%/}" | xz -zc -7e > "$OUT"
+
+          SHA_PKG=$(sha256sum "$OUT" | awk '{print $1}')
           echo "sha_pkg=$SHA_PKG" >> $GITHUB_OUTPUT
           echo "PKG_MIRROR_HASH: $SHA_PKG"
 
-      - name: Compute MIRROR_HASH for smartdns-webui (.tar.gz)
+      - name: Compute MIRROR_HASH for smartdns-webui (respect *_SOURCE_PROTO)
         id: hash_webui
         run: |
           set -euo pipefail
-          WEBUI_URL='${{ steps.norm.outputs.webui_url_norm }}'
-          WEBUI_COMMIT='${{ steps.parse.outputs.webui_commit }}'
-          WEBUI_VERSION='${{ steps.parse.outputs.webui_ver }}'
-          WEBUI_FILE='${{ steps.parse.outputs.webui_file }}'
+          PROTO='${{ steps.parse.outputs.webui_proto }}'
+          REPO='${{ steps.norm.outputs.webui_url_norm }}'
+          COMMIT='${{ steps.parse.outputs.webui_commit }}'
+          VER='${{ steps.parse.outputs.webui_ver }}'
+          FILE='${{ steps.parse.outputs.webui_file }}'
 
-          # 从 URL 推断仓库名，或直接用固定前缀
-          # 这里按你 Makefile 用法，prefix = smartdns-webui-$(SMARTDNS_WEBUI_VERSION)/
-          ARCHIVE_PREFIX="smartdns-webui-${WEBUI_VERSION}/"
-          OUT_TGZ="${WEBUI_FILE:-smartdns-webui-${WEBUI_VERSION}.tar.gz}"
+          [ -n "$PROTO" ] || { echo "SMARTDNS_WEBUI_SOURCE_PROTO empty"; exit 1; }
+          [ -n "$REPO" ]  || { echo "SMARTDNS_WEBUI_SOURCE_URL empty";  exit 1; }
+          [ -n "$COMMIT" ]|| { echo "SMARTDNS_WEBUI_SOURCE_VERSION empty"; exit 1; }
 
-          REPO_DIR=webui_repo
+          if [ "$PROTO" != "git" ]; then
+            echo "Unsupported WEBUI PROTO=$PROTO (only git implemented)"; exit 2
+          fi
+
           git config --global core.autocrlf false
-          git clone --no-tags --filter=tree:0 "$WEBUI_URL" "$REPO_DIR"
-          git -C "$REPO_DIR" fetch origin "$WEBUI_COMMIT" --depth=1
-          git -C "$REPO_DIR" checkout "$WEBUI_COMMIT"
+          rm -rf webui_repo webui_stage && mkdir -p webui_stage
+          git clone --no-tags --filter=tree:0 "$REPO" webui_repo
+          git -C webui_repo fetch origin "$COMMIT" --depth=1
+          git -C webui_repo checkout "$COMMIT"
 
-          # 生成可复现 .tar.gz：gzip -n 取消时间戳/文件名记录
-          GZIP=-n git -C "$REPO_DIR" archive --format=tar --prefix="$ARCHIVE_PREFIX" "$WEBUI_COMMIT" \
-            | gzip -n > "$OUT_TGZ"
+          TS=$(git -C webui_repo log -1 --format=%ct)
 
-          SHA_WEBUI=$(sha256sum "$OUT_TGZ" | awk '{print $1}')
-          echo "sha_webui=$SHA_WEBUI" >> $GITHUB_OUTPUT
-          echo "MIRROR_HASH (webui): $SHA_WEBUI"
+          PREFIX="smartdns-webui-${VER}/"
+          git -C webui_repo archive --format=tar --prefix="$PREFIX" "$COMMIT" -o webui_tree.tar
+          tar -C webui_stage -xf webui_tree.tar
+
+          if [ -f webui_repo/.gitmodules ]; then
+            git -C webui_repo submodule update --init --recursive
+            while IFS= read -r path; do
+              [ -z "$path" ] && continue
+              dst="webui_stage/${PREFIX}${path}"
+              mkdir -p "$dst"
+              rsync
 
       - name: Update Makefile.apk with new hashes
         id: patch
