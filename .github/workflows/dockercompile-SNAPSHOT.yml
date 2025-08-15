@@ -168,6 +168,100 @@ jobs:
           EOF'
           docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
 
+      - name: Download sources with auto-fix on hash mismatch
+        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c '
+            set -e
+            cd /builder
+            export TERM=dumb
+            MF="feeds/packages/net/smartdns/Makefile"
+
+            update_webui_hash() {
+              local sha="$1"
+              # 修改 Download/smartdns-webui 段 MIRROR_HASH
+              awk -v newsha="$sha" "
+                BEGIN{inblk=0}
+                /^define[[:space:]]+Download\/smartdns-webui/ {inblk=1}
+                inblk && /^[[:space:]]*MIRROR_HASH[[:space:]]*:=/ { sub(/:=.*/,\":= \" newsha \"\"); }
+                {print}
+                inblk && /^endef/ {inblk=0}
+              " "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+
+              # 更新 SMARTDNS_WEBUI_HASH
+              if grep -q "^SMARTDNS_WEBUI_HASH:=" "$MF"; then
+                sed -i -E "s/^SMARTDNS_WEBUI_HASH:=.*/SMARTDNS_WEBUI_HASH:=$sha/" "$MF"
+              else
+                if grep -n "^SMARTDNS_WEBUI_FILE:=" "$MF" >/dev/null; then
+                  line=$(grep -n "^SMARTDNS_WEBUI_FILE:=" "$MF" | head -n1 | cut -d: -f1)
+                else
+                  line=$(grep -n "^SMARTDNS_WEBUI_VERSION:=" "$MF" | head -n1 | cut -d: -f1)
+                fi
+                awk -v ln="$line" -v s="$sha" "NR==ln{print; print \"SMARTDNS_WEBUI_HASH:=\" s; next} {print}" "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+              fi
+              echo "[patched] webui hash -> $sha"
+            }
+
+            update_main_hash() {
+              local sha="$1"
+              if grep -q "^PKG_MIRROR_HASH:=" "$MF"; then
+                sed -i -E "s/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=$sha/" "$MF"
+              else
+                awk -v s="$sha" "
+                  { print }
+                  /^PKG_SOURCE_VERSION:=/ && !p { print \"PKG_MIRROR_HASH:=\" s; p=1 }
+                " "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+              fi
+              if grep -q "^PKG_HASH:=" "$MF"; then
+                sed -i -E "s/^PKG_HASH:=.*/PKG_HASH:=$sha/" "$MF"
+              fi
+              echo "[patched] main hash -> $sha"
+            }
+
+            [ -f .config ] || echo "CONFIG_TARGET_IMAGES=n" > .config && make defconfig
+
+            attempt=1; max=3
+            while [ $attempt -le $max ]; do
+              echo ">>> Attempt #$attempt: downloading sources"
+              set +e
+              make package/smartdns/download V=s 2>err.log
+              ret=$?
+              set -e
+
+              if [ $ret -eq 0 ]; then
+                echo "Download successful."
+                break
+              fi
+
+              if grep -q -E "Hash mismatch for file .*: expected [0-9a-f]{64}, got [0-9a-f]{64}" err.log; then
+                grep -E "Hash mismatch for file .*: expected [0-9a-f]{64}, got [0-9a-f]{64}" err.log | while read -r line; do
+                  fname=$(printf "%s\n" "$line" | sed -nE "s/.*Hash mismatch for file ([^:]+):.*/\1/p")
+                  got=$(printf "%s\n" "$line"   | sed -nE "s/.* got ([0-9a-f]{64}).*/\1/p")
+                  echo "Mismatch: file=$fname got=$got"
+                  if echo "$fname" | grep -q "smartdns-webui-"; then
+                    update_webui_hash "$got"
+                  else
+                    update_main_hash "$got"
+                  fi
+                done
+              else
+                echo "Download failed (not hash mismatch), aborting..."
+                sed -n "1,200p" err.log
+                exit 1
+              fi
+
+              attempt=$((attempt+1))
+            done
+
+            if [ $attempt -gt $max ]; then
+              echo "Failed to resolve hash mismatch after $max attempts."
+              exit 1
+            fi
+
+            echo "--- Final hash values ---"
+            grep -E "^(PKG_MIRROR_HASH|PKG_HASH|SMARTDNS_WEBUI_HASH):=" "$MF" || true
+            awk "/^define[[:space:]]+Download\\/smartdns-webui/{f=1} f&&/^\\s*MIRROR_HASH/{print} f&&/^endef/{f=0}" "$MF" || true
+          '
+
       - name: Build smartdns and luci-app-smartdns in container
         run: |
           #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
