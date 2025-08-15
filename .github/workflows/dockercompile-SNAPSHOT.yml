@@ -168,17 +168,20 @@ jobs:
           EOF'
           docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
 
-      - name: Download sources with auto-fix on hash mismatch
+      - name: Download sources with auto-fix on hash mismatch (ANSI-safe, non-blocking)
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c '
             set -e
             cd /builder
-            export TERM=dumb
+            export TERM=dumb LANG=C LC_ALL=C
             MF="feeds/packages/net/smartdns/Makefile"
+
+            # --- helpers ---
+            strip_ansi() { sed -r "s/\x1B\[[0-9;]*[mK]//g" | tr -d "\r"; }
 
             update_webui_hash() {
               local sha="$1"
-              # 修改 Download/smartdns-webui 段 MIRROR_HASH
+              # 1) Download/smartdns-webui 段 MIRROR_HASH
               awk -v newsha="$sha" "
                 BEGIN{inblk=0}
                 /^define[[:space:]]+Download\/smartdns-webui/ {inblk=1}
@@ -186,8 +189,7 @@ jobs:
                 {print}
                 inblk && /^endef/ {inblk=0}
               " "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
-
-              # 更新 SMARTDNS_WEBUI_HASH
+              # 2) 同步 SMARTDNS_WEBUI_HASH（供 HASH:=$(SMARTDNS_WEBUI_HASH) 使用）
               if grep -q "^SMARTDNS_WEBUI_HASH:=" "$MF"; then
                 sed -i -E "s/^SMARTDNS_WEBUI_HASH:=.*/SMARTDNS_WEBUI_HASH:=$sha/" "$MF"
               else
@@ -217,36 +219,80 @@ jobs:
               echo "[patched] main hash -> $sha"
             }
 
-            [ -f .config ] || echo "CONFIG_TARGET_IMAGES=n" > .config && make defconfig
+            # 确保已有 .config（兜底）
+            [ -f .config ] || { echo "CONFIG_TARGET_IMAGES=n" > .config; make defconfig; }
 
-            attempt=1; max=3
+            attempt=1; max=5
             while [ $attempt -le $max ]; do
               echo ">>> Attempt #$attempt: downloading sources"
               set +e
-              make package/smartdns/download V=s 2>err.log
+              make package/smartdns/download V=s >dl_raw.log 2>&1
               ret=$?
               set -e
+
+              # 清洗日志，便于正则匹配
+              cat dl_raw.log | strip_ansi > dl.log
 
               if [ $ret -eq 0 ]; then
                 echo "Download successful."
                 break
               fi
 
-              if grep -q -E "Hash mismatch for file .*: expected [0-9a-f]{64}, got [0-9a-f]{64}" err.log; then
-                grep -E "Hash mismatch for file .*: expected [0-9a-f]{64}, got [0-9a-f]{64}" err.log | while read -r line; do
+              # 兼容多种提示：Hash mismatch / HASH mismatch / Hash check failed
+              if grep -qiE "Hash (mismatch|check failed)|Hash mismatch" dl.log; then
+                # 把所有包含 "Hash mismatch for file ..." 的行抓出来处理
+                # 允许 expected/got 为 40~64 位十六进制（个别日志长度异常也不影响）
+                mism_lines=$(grep -E "Hash mismatch for file .*: expected [0-9A-Fa-f]{40,64}, got [0-9A-Fa-f]{40,64}" dl.log || true)
+
+                # 若有另一种格式 "Hash check failed for <file>"
+                if [ -z "$mism_lines" ]; then
+                  mism_lines=$(grep -E "Hash check failed for .*" dl.log || true)
+                fi
+
+                if [ -z "$mism_lines" ]; then
+                  echo "Found hash-related error but could not extract lines. Showing context:"
+                  tail -n 200 dl.log
+                  attempt=$((attempt+1))
+                  continue
+                fi
+
+                # 逐条行处理
+                echo "$mism_lines" | while IFS= read -r line; do
+                  # 文件名（两种格式都尝试）
                   fname=$(printf "%s\n" "$line" | sed -nE "s/.*Hash mismatch for file ([^:]+):.*/\1/p")
-                  got=$(printf "%s\n" "$line"   | sed -nE "s/.* got ([0-9a-f]{64}).*/\1/p")
-                  echo "Mismatch: file=$fname got=$got"
-                  if echo "$fname" | grep -q "smartdns-webui-"; then
+                  [ -n "$fname" ] || fname=$(printf "%s\n" "$line" | sed -nE "s/.*Hash check failed for ([^ ]*).*/\1/p")
+
+                  # got 的 SHA（如果本行没 got，就在整个日志里用该文件名就近找）
+                  got=$(printf "%s\n" "$line" | sed -nE "s/.* got ([0-9A-Fa-f]{40,64}).*/\1/p")
+                  if [ -z "$got" ] && [ -n "$fname" ]; then
+                    got=$(grep -F "Hash mismatch for file $fname:" dl.log | sed -nE "s/.* got ([0-9A-Fa-f]{40,64}).*/\1/p" | tail -n1)
+                  fi
+                  if [ -z "$got" ]; then
+                    # 兜底：全局最后一个 got
+                    got=$(sed -nE "s/.* got ([0-9A-Fa-f]{40,64}).*/\1/p" dl.log | tail -n1)
+                  fi
+
+                  if [ -z "$fname" ] || [ -z "$got" ]; then
+                    echo "Could not extract fname/got from line: $line"
+                    return 0
+                  fi
+
+                  echo "Mismatch -> file=$fname  got=$got"
+                  # 修补对应 hash
+                  if printf "%s" "$fname" | grep -q "smartdns-webui-"; then
                     update_webui_hash "$got"
                   else
                     update_main_hash "$got"
                   fi
+
+                  # 删除已下载的旧文件，强制重下
+                  if [ -f "dl/$fname" ]; then
+                    rm -f "dl/$fname" || true
+                  fi
                 done
               else
-                echo "Download failed (not hash mismatch), aborting..."
-                sed -n "1,200p" err.log
-                exit 1
+                echo "Download failed (not recognized as hash mismatch). Will retry for robustness."
+                tail -n 120 dl.log || true
               fi
 
               attempt=$((attempt+1))
@@ -254,6 +300,8 @@ jobs:
 
             if [ $attempt -gt $max ]; then
               echo "Failed to resolve hash mismatch after $max attempts."
+              echo "Tail of sanitized log:"
+              tail -n 200 dl.log || true
               exit 1
             fi
 
