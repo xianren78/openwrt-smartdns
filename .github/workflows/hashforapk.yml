@@ -22,31 +22,79 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq xz-utils git
 
-      - name: Parse variables from Makefile.apk
+      - name: Parse variables from Makefile.apk (strict)
         id: parse
         run: |
+          set -e
           MF=Makefile.apk
           [ -f "$MF" ] || { echo "Makefile.apk not found"; exit 1; }
 
-          # 精确取值（开头锚定，去掉 := 前缀和值两侧空格）
-          PKG_NAME=$(grep -E '^[[:space:]]*PKG_NAME[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
-          PKG_VERSION=$(grep -E '^[[:space:]]*PKG_VERSION[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
-          PKG_SOURCE_URL=$(grep -E '^[[:space:]]*PKG_SOURCE_URL[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
-          PKG_SOURCE_VERSION=$(grep -E '^[[:space:]]*PKG_SOURCE_VERSION[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+          # 仅匹配 “键 := 值” 的形式；不吞掉 URL 中的冒号
+          get_val() {
+            local key="$1"
+            sed -nE "s|^[[:space:]]*${key}[[:space:]]*:=[[:space:]]*||p" "$MF" | head -n1
+          }
 
-          WEBUI_VERSION=$(grep -E '^[[:space:]]*SMARTDNS_WEBUI_VERSION[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
-          WEBUI_URL=$(grep -E '^[[:space:]]*SMARTDNS_WEBUI_SOURCE_URL[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
-          WEBUI_COMMIT=$(grep -E '^[[:space:]]*SMARTDNS_WEBUI_SOURCE_VERSION[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
-          WEBUI_FILE=$(grep -E '^[[:space:]]*SMARTDNS_WEBUI_FILE[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+          PKG_NAME="$(get_val 'PKG_NAME')"
+          PKG_VERSION="$(get_val 'PKG_VERSION')"
+          PKG_SOURCE_URL="$(get_val 'PKG_SOURCE_URL')"
+          PKG_SOURCE_VERSION="$(get_val 'PKG_SOURCE_VERSION')"
 
-          echo "pkg_name=$PKG_NAME"               >> $GITHUB_OUTPUT
-          echo "pkg_ver=$PKG_VERSION"             >> $GITHUB_OUTPUT
-          echo "pkg_url=$PKG_SOURCE_URL"          >> $GITHUB_OUTPUT
-          echo "pkg_commit=$PKG_SOURCE_VERSION"   >> $GITHUB_OUTPUT
-          echo "webui_ver=$WEBUI_VERSION"         >> $GITHUB_OUTPUT
-          echo "webui_url=$WEBUI_URL"             >> $GITHUB_OUTPUT
-          echo "webui_commit=$WEBUI_COMMIT"       >> $GITHUB_OUTPUT
-          echo "webui_file=$WEBUI_FILE"           >> $GITHUB_OUTPUT
+          WEBUI_VERSION="$(get_val 'SMARTDNS_WEBUI_VERSION')"
+          WEBUI_URL="$(get_val 'SMARTDNS_WEBUI_SOURCE_URL')"
+          WEBUI_COMMIT="$(get_val 'SMARTDNS_WEBUI_SOURCE_VERSION')"
+          WEBUI_FILE="$(get_val 'SMARTDNS_WEBUI_FILE')"
+
+          # 去掉可能的引号与结尾注释
+          strip_q() { echo "$1" | sed -E 's/[[:space:]]+#.*$//' | sed -E 's/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/'; }
+
+          PKG_NAME="$(strip_q "$PKG_NAME")"
+          PKG_VERSION="$(strip_q "$PKG_VERSION")"
+          PKG_SOURCE_URL="$(strip_q "$PKG_SOURCE_URL")"
+          PKG_SOURCE_VERSION="$(strip_q "$PKG_SOURCE_VERSION")"
+          WEBUI_VERSION="$(strip_q "$WEBUI_VERSION")"
+          WEBUI_URL="$(strip_q "$WEBUI_URL")"
+          WEBUI_COMMIT="$(strip_q "$WEBUI_COMMIT")"
+          WEBUI_FILE="$(strip_q "$WEBUI_FILE")"
+
+          echo "pkg_name=$PKG_NAME"             >> $GITHUB_OUTPUT
+          echo "pkg_ver=$PKG_VERSION"           >> $GITHUB_OUTPUT
+          echo "pkg_url=$PKG_SOURCE_URL"        >> $GITHUB_OUTPUT
+          echo "pkg_commit=$PKG_SOURCE_VERSION" >> $GITHUB_OUTPUT
+          echo "webui_ver=$WEBUI_VERSION"       >> $GITHUB_OUTPUT
+          echo "webui_url=$WEBUI_URL"           >> $GITHUB_OUTPUT
+          echo "webui_commit=$WEBUI_COMMIT"     >> $GITHUB_OUTPUT
+          echo "webui_file=$WEBUI_FILE"         >> $GITHUB_OUTPUT
+
+      - name: Normalize repo URLs (https scheme, GitHub)
+        id: norm
+        run: |
+          set -e
+          norm() {
+            local u="$1"
+            # //github.com/owner/repo.git  -> https://github.com/owner/repo.git
+            if echo "$u" | grep -qE '^//github\.com/'; then
+              u="https:${u}"
+            fi
+            # git@github.com:owner/repo.git -> https://github.com/owner/repo.git
+            if echo "$u" | grep -qE '^git@github\.com:'; then
+              u="https://github.com/$(echo "$u" | sed -E 's#^git@github\.com:##')"
+            fi
+            # 没有 scheme 的 github.com/owner/repo.git -> https://github.com/owner/repo.git
+            if echo "$u" | grep -qE '^github\.com/'; then
+              u="https://$u"
+            fi
+            echo "$u"
+          }
+
+          PKG_URL="$(norm '${{ steps.parse.outputs.pkg_url }}')"
+          WEBUI_URL="$(norm '${{ steps.parse.outputs.webui_url }}')"
+
+          echo "pkg_url_norm=$PKG_URL"   >> $GITHUB_OUTPUT
+          echo "webui_url_norm=$WEBUI_URL" >> $GITHUB_OUTPUT
+
+          echo "Normalized PKG URL : $PKG_URL"
+          echo "Normalized WEBUI URL: $WEBUI_URL"
 
       - name: Compute PKG_MIRROR_HASH (.tar.xz of smartdns)
         id: hash_pkg
@@ -54,7 +102,7 @@ jobs:
           set -euo pipefail
           PKG_NAME='${{ steps.parse.outputs.pkg_name }}'
           PKG_VERSION='${{ steps.parse.outputs.pkg_ver }}'
-          PKG_URL='${{ steps.parse.outputs.pkg_url }}'
+          PKG_URL='${{ steps.norm.outputs.pkg_url_norm }}'
           PKG_COMMIT='${{ steps.parse.outputs.pkg_commit }}'
 
           # 仅支持 GitHub URL（如需扩展其它 git 源，可再加判断）
@@ -81,7 +129,7 @@ jobs:
         id: hash_webui
         run: |
           set -euo pipefail
-          WEBUI_URL='${{ steps.parse.outputs.webui_url }}'
+          WEBUI_URL='${{ steps.norm.outputs.webui_url_norm }}'
           WEBUI_COMMIT='${{ steps.parse.outputs.webui_commit }}'
           WEBUI_VERSION='${{ steps.parse.outputs.webui_ver }}'
           WEBUI_FILE='${{ steps.parse.outputs.webui_file }}'
