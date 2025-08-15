@@ -220,19 +220,19 @@ jobs:
           SHA_PKG='${{ steps.hash_pkg.outputs.sha_pkg }}'
           SHA_WEBUI='${{ steps.hash_webui.outputs.sha_webui }}'
 
-          # 先统一写法：把 "MIRROR_HASH :=" 变为 "MIRROR_HASH:="
-          sed -i -E 's/^([[:space:]]*MIRROR_HASH)[[:space:]]*:=/\1:=/' "$MF"
+          # 1) 统一写法：把 "MIRROR_HASH :=" 变为 "MIRROR_HASH:="
+          sed -i -E 's|^([[:space:]]*MIRROR_HASH)[[:space:]]*:=|\1:=|' "$MF"
 
-          # 更新 PKG_MIRROR_HASH（仅首个匹配）
-          sed -i -E "0,/^[[:space:]]*PKG_MIRROR_HASH[[:space:]]*:=.*/s//PKG_MIRROR_HASH:=${SHA_PKG}/" "$MF"
+          # 2) 更新 PKG_MIRROR_HASH（仅首个匹配）；用竖线分隔避免与值中的 / 冲突
+          sed -i -E "0,/^[[:space:]]*PKG_MIRROR_HASH[[:space:]]*:=.*/s|.*|PKG_MIRROR_HASH:=${SHA_PKG}|" "$MF"
 
-          # 仅在 Download/smartdns-webui 段内更新 MIRROR_HASH
+          # 3) 仅在 Download/smartdns-webui 段内更新 MIRROR_HASH；用 awk sub 保证不受 / 影响
           awk -v hash="$SHA_WEBUI" '
             BEGIN{in_webui=0}
             {
               if ($0 ~ /^[[:space:]]*define[[:space:]]+Download\/smartdns-webui/) in_webui=1
               if (in_webui && $0 ~ /^[[:space:]]*MIRROR_HASH[[:space:]]*:=/) {
-                sub(/:=.*/," :=" " " hash)
+                sub(/:=.*/, ":= " hash)
               }
               print
               if (in_webui && $0 ~ /^[[:space:]]*endef[[:space:]]*$/) in_webui=0
