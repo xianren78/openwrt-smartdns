@@ -36,6 +36,17 @@ jobs:
           PKG_VERSION=$(grep '^PKG_VERSION:=' Makefile.apk | sed 's/PKG_VERSION:=//')
           SMARTDNS_WEBUI_VERSION=$(grep '^SMARTDNS_WEBUI_VERSION:=' Makefile.apk | sed 's/SMARTDNS_WEBUI_VERSION:=//')
           SMARTDNS_WEBUI_FILE=$(grep '^SMARTDNS_WEBUI_FILE:=' Makefile.apk | sed 's/SMARTDNS_WEBUI_FILE:=//')
+          SMARTDNS_SUBDIR=$(grep '^PKG_NAME:=' Makefile.apk | sed 's/PKG_NAME:=//')-$(grep '^PKG_VERSION:=' Makefile.apk | sed 's/PKG_VERSION:=//')
+          WEBUI_SUBDIR=$(grep '^SUBDIR:=.*smartdns-webui' Makefile.apk | sed 's/SUBDIR:=//')
+          [ -n "$PKG_SOURCE_URL" ] || { echo "Error: PKG_SOURCE_URL not found"; exit 1; }
+          [ -n "$PKG_SOURCE_VERSION" ] || { echo "Error: PKG_SOURCE_VERSION not found"; exit 1; }
+          [ -n "$SMARTDNS_WEBUI_SOURCE_URL" ] || { echo "Error: SMARTDNS_WEBUI_SOURCE_URL not found"; exit 1; }
+          [ -n "$SMARTDNS_WEBUI_SOURCE_VERSION" ] || { echo "Error: SMARTDNS_WEBUI_SOURCE_VERSION not found"; exit 1; }
+          [ -n "$PKG_NAME" ] || { echo "Error: PKG_NAME not found"; exit 1; }
+          [ -n "$PKG_VERSION" ] || { echo "Error: PKG_VERSION not found"; exit 1; }
+          [ -n "$SMARTDNS_WEBUI_VERSION" ] || { echo "Error: SMARTDNS_WEBUI_VERSION not found"; exit 1; }
+          [ -n "$SMARTDNS_WEBUI_FILE" ] || { echo "Error: SMARTDNS_WEBUI_FILE not found"; exit 1; }
+          [ -n "$WEBUI_SUBDIR" ] || { echo "Error: WEBUI_SUBDIR not found"; exit 1; }
           echo "PKG_SOURCE_URL=$PKG_SOURCE_URL" >> $GITHUB_ENV
           echo "PKG_SOURCE_VERSION=$PKG_SOURCE_VERSION" >> $GITHUB_ENV
           echo "SMARTDNS_WEBUI_SOURCE_URL=$SMARTDNS_WEBUI_SOURCE_URL" >> $GITHUB_ENV
@@ -44,76 +55,90 @@ jobs:
           echo "PKG_VERSION=$PKG_VERSION" >> $GITHUB_ENV
           echo "SMARTDNS_WEBUI_VERSION=$SMARTDNS_WEBUI_VERSION" >> $GITHUB_ENV
           echo "SMARTDNS_WEBUI_FILE=$SMARTDNS_WEBUI_FILE" >> $GITHUB_ENV
+          echo "SMARTDNS_SUBDIR=$SMARTDNS_SUBDIR" >> $GITHUB_ENV
+          echo "WEBUI_SUBDIR=$WEBUI_SUBDIR" >> $GITHUB_ENV
 
       - name: Calculate PKG_MIRROR_HASH for smartdns
         run: |
-          # Create temporary directory
+          # Create temporary directories
           mkdir -p tmp/dl
           
-          # Set subdir for smartdns
-          SMARTDNS_SUBDIR="${PKG_NAME}-${PKG_VERSION}"
-          
-          # Clone into subdir
-          cd tmp/dl
-          git clone "${PKG_SOURCE_URL}" "${SMARTDNS_SUBDIR}"
-          cd "${SMARTDNS_SUBDIR}"
-          git checkout "${PKG_SOURCE_VERSION}"
-          export TAR_TIMESTAMP=$(git log -1 --format='@%ct')
+          # Clone smartdns repository
+          git clone "${PKG_SOURCE_URL}" "tmp/dl/${SMARTDNS_SUBDIR}" || { echo "Error: Failed to clone ${PKG_SOURCE_URL}"; exit 1; }
+          cd "tmp/dl/${SMARTDNS_SUBDIR}"
+          git checkout "${PKG_SOURCE_VERSION}" || { echo "Error: Failed to checkout ${PKG_SOURCE_VERSION}"; exit 1; }
           git config core.abbrev 8
-          git archive --format=tar HEAD --output=../../"${SMARTDNS_SUBDIR}".tar.git
+          
+          # Get timestamp from git commit
+          export TAR_TIMESTAMP=$(git log -1 --format='@%ct') || { echo "Error: Failed to get commit timestamp"; exit 1; }
+          
+          # Create git archive
+          git archive --format=tar HEAD --output=../../"${SMARTDNS_SUBDIR}".tar.git || { echo "Error: Failed to create git archive"; exit 1; }
+          
+          # Append .git and .gitmodules (if they exist)
           tar --numeric-owner --owner=0 --group=0 --ignore-failed-read -C . -f ../../"${SMARTDNS_SUBDIR}".tar.git -r .git .gitmodules 2>/dev/null
+          
+          # Extract archive and update submodules
           cd ../..
-          rm -rf tmp/dl/"${SMARTDNS_SUBDIR}"
-          mkdir tmp/dl/"${SMARTDNS_SUBDIR}"
-          tar -C tmp/dl/"${SMARTDNS_SUBDIR}" -xf tmp/dl/"${SMARTDNS_SUBDIR}".tar.git
-          cd tmp/dl/"${SMARTDNS_SUBDIR}"
-          git submodule update --init --recursive || true  # Ignore if no submodules
+          rm -rf "tmp/dl/${SMARTDNS_SUBDIR}"
+          mkdir -p "tmp/dl/${SMARTDNS_SUBDIR}"
+          tar -C "tmp/dl/${SMARTDNS_SUBDIR}" -xf "tmp/dl/${SMARTDNS_SUBDIR}".tar.git || { echo "Error: Failed to extract git archive"; exit 1; }
+          cd "tmp/dl/${SMARTDNS_SUBDIR}"
+          git submodule update --init --recursive || true
           rm -rf .git .gitmodules
+          
+          # Create final tar.xz archive with subdirectory
           cd ..
           tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
-            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c "${SMARTDNS_SUBDIR}" | xz -zc -7e > "../${SMARTDNS_SUBDIR}.tar.xz"
+            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c "${SMARTDNS_SUBDIR}" | xz -zc -7e > "../${SMARTDNS_SUBDIR}.tar.xz" || { echo "Error: Failed to create tar.xz archive"; exit 1; }
           
           # Calculate SHA256 hash
-          PKG_MIRROR_HASH=$(sha256sum "../${SMARTDNS_SUBDIR}.tar.xz" | cut -d ' ' -f1)
+          PKG_MIRROR_HASH=$(sha256sum "../${SMARTDNS_SUBDIR}.tar.xz" | cut -d ' ' -f1) || { echo "Error: Failed to calculate SHA256 hash"; exit 1; }
           echo "PKG_MIRROR_HASH=$PKG_MIRROR_HASH" >> $GITHUB_ENV
           
           # Clean up
-          rm -rf tmp/dl "${SMARTDNS_SUBDIR}.tar.xz"
+          rm -rf tmp/dl "../${SMARTDNS_SUBDIR}.tar.xz"
 
       - name: Calculate MIRROR_HASH for smartdns-webui
         run: |
-          # Create temporary directory
+          # Create temporary directories
           mkdir -p tmp/dl
           
-          # Set subdir for smartdns-webui
-          WEBUI_SUBDIR="smartdns-webui"
-          
-          # Clone into subdir
-          cd tmp/dl
-          git clone "${SMARTDNS_WEBUI_SOURCE_URL}" "${WEBUI_SUBDIR}"
-          cd "${WEBUI_SUBDIR}"
-          git checkout "${SMARTDNS_WEBUI_SOURCE_VERSION}"
-          export TAR_TIMESTAMP=$(git log -1 --format='@%ct')
+          # Clone smartdns-webui repository
+          git clone "${SMARTDNS_WEBUI_SOURCE_URL}" "tmp/dl/${WEBUI_SUBDIR}" || { echo "Error: Failed to clone ${SMARTDNS_WEBUI_SOURCE_URL}"; exit 1; }
+          cd "tmp/dl/${WEBUI_SUBDIR}"
+          git checkout "${SMARTDNS_WEBUI_SOURCE_VERSION}" || { echo "Error: Failed to checkout ${SMARTDNS_WEBUI_SOURCE_VERSION}"; exit 1; }
           git config core.abbrev 8
-          git archive --format=tar HEAD --output=../../"${WEBUI_SUBDIR}".tar.git
+          
+          # Get timestamp from git commit
+          export TAR_TIMESTAMP=$(git log -1 --format='@%ct') || { echo "Error: Failed to get commit timestamp"; exit 1; }
+          
+          # Create git archive
+          git archive --format=tar HEAD --output=../../"${WEBUI_SUBDIR}".tar.git || { echo "Error: Failed to create git archive"; exit 1; }
+          
+          # Append .git and .gitmodules (if they exist)
           tar --numeric-owner --owner=0 --group=0 --ignore-failed-read -C . -f ../../"${WEBUI_SUBDIR}".tar.git -r .git .gitmodules 2>/dev/null
+          
+          # Extract archive and update submodules
           cd ../..
-          rm -rf tmp/dl/"${WEBUI_SUBDIR}"
-          mkdir tmp/dl/"${WEBUI_SUBDIR}"
-          tar -C tmp/dl/"${WEBUI_SUBDIR}" -xf tmp/dl/"${WEBUI_SUBDIR}".tar.git
-          cd tmp/dl/"${WEBUI_SUBDIR}"
-          git submodule update --init --recursive || true  # Ignore if no submodules
+          rm -rf "tmp/dl/${WEBUI_SUBDIR}"
+          mkdir -p "tmp/dl/${WEBUI_SUBDIR}"
+          tar -C "tmp/dl/${WEBUI_SUBDIR}" -xf "tmp/dl/${WEBUI_SUBDIR}".tar.git || { echo "Error: Failed to extract git archive"; exit 1; }
+          cd "tmp/dl/${WEBUI_SUBDIR}"
+          git submodule update --init --recursive || true
           rm -rf .git .gitmodules
+          
+          # Create final tar.gz archive with subdirectory
           cd ..
           tar --numeric-owner --owner=0 --group=0 --mode=a-s --sort=name \
-            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c "${WEBUI_SUBDIR}" | gzip -nc > "../${SMARTDNS_WEBUI_FILE}"
+            ${TAR_TIMESTAMP:+--mtime="$TAR_TIMESTAMP"} -c "${WEBUI_SUBDIR}" | gzip -nc > "../${SMARTDNS_WEBUI_FILE}" || { echo "Error: Failed to create tar.gz archive"; exit 1; }
           
           # Calculate SHA256 hash
-          WEBUI_MIRROR_HASH=$(sha256sum "../${SMARTDNS_WEBUI_FILE}" | cut -d ' ' -f1)
+          WEBUI_MIRROR_HASH=$(sha256sum "../${SMARTDNS_WEBUI_FILE}" | cut -d ' ' -f1) || { echo "Error: Failed to calculate SHA256 hash"; exit 1; }
           echo "WEBUI_MIRROR_HASH=$WEBUI_MIRROR_HASH" >> $GITHUB_ENV
           
           # Clean up
-          rm -rf tmp/dl "${SMARTDNS_WEBUI_FILE}"
+          rm -rf tmp/dl "../${SMARTDNS_WEBUI_FILE}"
 
       - name: Update Makefile.apk
         run: |
