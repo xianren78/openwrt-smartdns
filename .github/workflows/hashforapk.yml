@@ -41,10 +41,9 @@ jobs:
           # 支持  =  :=  ?=  +=；忽略前导空白；截断行尾注释；去掉包裹引号
           get_val() {
             local key="$1"
-            sed -nE "s|^[[:space:]]*${key}[[:space:]]*(:|\\+|\\?)?=[[:space:]]*([^#]*)[[:space:]]*.*$|\\2|p" "$MF" | head -n1 \
-            | sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/^\"(.*)\"$/\1/; s/^\x27(.*)\x27$/\1/'
+            sed -nE "s/^[[:space:]]*${key}[[:space:]]*(:|\\+|\\?)?=[[:space:]]*([^#]*)[[:space:]]*.*$/\\2/p" "$MF" | head -n1 \
+            | sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/^"(.*)"$/\1/; s/^\x27(.*)\x27$/\1/'
           }
-
           PKG_NAME="$(get_val 'PKG_NAME')"
           PKG_VERSION="$(get_val 'PKG_VERSION')"
           PKG_SOURCE_PROTO="$(get_val 'PKG_SOURCE_PROTO')"
