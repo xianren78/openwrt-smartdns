@@ -1,0 +1,152 @@
+name: Update mirror hashes in Makefile.apk
+
+permissions:
+  contents: write
+
+on:
+  #schedule:
+  #  - cron: '20 */6 * * *'    # 每6小时（UTC）
+  workflow_dispatch:
+
+jobs:
+  update-hashes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (use PAT to allow downstream workflows)
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PAT_WORKFLOW }}   # 需提前在仓库 Secrets 里配置：PAT_WORKFLOW（含 repo+workflow）
+
+      - name: Install needed tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq xz-utils git
+
+      - name: Parse variables from Makefile.apk
+        id: parse
+        run: |
+          MF=Makefile.apk
+          [ -f "$MF" ] || { echo "Makefile.apk not found"; exit 1; }
+
+          # 精确取值（开头锚定，去掉 := 前缀和值两侧空格）
+          PKG_NAME=$(grep -E '^[[:space:]]*PKG_NAME[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+          PKG_VERSION=$(grep -E '^[[:space:]]*PKG_VERSION[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+          PKG_SOURCE_URL=$(grep -E '^[[:space:]]*PKG_SOURCE_URL[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+          PKG_SOURCE_VERSION=$(grep -E '^[[:space:]]*PKG_SOURCE_VERSION[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+
+          WEBUI_VERSION=$(grep -E '^[[:space:]]*SMARTDNS_WEBUI_VERSION[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+          WEBUI_URL=$(grep -E '^[[:space:]]*SMARTDNS_WEBUI_SOURCE_URL[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+          WEBUI_COMMIT=$(grep -E '^[[:space:]]*SMARTDNS_WEBUI_SOURCE_VERSION[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+          WEBUI_FILE=$(grep -E '^[[:space:]]*SMARTDNS_WEBUI_FILE[:=]' "$MF" | head -n1 | sed -E 's/.*[:=]\s*//')
+
+          echo "pkg_name=$PKG_NAME"               >> $GITHUB_OUTPUT
+          echo "pkg_ver=$PKG_VERSION"             >> $GITHUB_OUTPUT
+          echo "pkg_url=$PKG_SOURCE_URL"          >> $GITHUB_OUTPUT
+          echo "pkg_commit=$PKG_SOURCE_VERSION"   >> $GITHUB_OUTPUT
+          echo "webui_ver=$WEBUI_VERSION"         >> $GITHUB_OUTPUT
+          echo "webui_url=$WEBUI_URL"             >> $GITHUB_OUTPUT
+          echo "webui_commit=$WEBUI_COMMIT"       >> $GITHUB_OUTPUT
+          echo "webui_file=$WEBUI_FILE"           >> $GITHUB_OUTPUT
+
+      - name: Compute PKG_MIRROR_HASH (.tar.xz of smartdns)
+        id: hash_pkg
+        run: |
+          set -euo pipefail
+          PKG_NAME='${{ steps.parse.outputs.pkg_name }}'
+          PKG_VERSION='${{ steps.parse.outputs.pkg_ver }}'
+          PKG_URL='${{ steps.parse.outputs.pkg_url }}'
+          PKG_COMMIT='${{ steps.parse.outputs.pkg_commit }}'
+
+          # 仅支持 GitHub URL（如需扩展其它 git 源，可再加判断）
+          # 期望形如: https://github.com/<owner>/<repo>.git
+          REPO_GIT="$PKG_URL"
+          REPO_DIR=src_repo
+          ARCHIVE_PREFIX="${PKG_NAME}-${PKG_VERSION}/"
+          OUT_XZ="source-${PKG_NAME}-${PKG_VERSION}-${PKG_COMMIT}.tar.xz"
+
+          git config --global core.autocrlf false
+          git clone --no-tags --filter=tree:0 "$REPO_GIT" "$REPO_DIR"
+          git -C "$REPO_DIR" fetch origin "$PKG_COMMIT" --depth=1
+          git -C "$REPO_DIR" checkout "$PKG_COMMIT"
+
+          # 按 OpenWrt 常见做法：git archive + xz -7e（增强可重复性）
+          git -C "$REPO_DIR" archive --format=tar --prefix="$ARCHIVE_PREFIX" "$PKG_COMMIT" \
+            | xz -zc -7e > "$OUT_XZ"
+
+          SHA_PKG=$(sha256sum "$OUT_XZ" | awk '{print $1}')
+          echo "sha_pkg=$SHA_PKG" >> $GITHUB_OUTPUT
+          echo "PKG_MIRROR_HASH: $SHA_PKG"
+
+      - name: Compute MIRROR_HASH for smartdns-webui (.tar.gz)
+        id: hash_webui
+        run: |
+          set -euo pipefail
+          WEBUI_URL='${{ steps.parse.outputs.webui_url }}'
+          WEBUI_COMMIT='${{ steps.parse.outputs.webui_commit }}'
+          WEBUI_VERSION='${{ steps.parse.outputs.webui_ver }}'
+          WEBUI_FILE='${{ steps.parse.outputs.webui_file }}'
+
+          # 从 URL 推断仓库名，或直接用固定前缀
+          # 这里按你 Makefile 用法，prefix = smartdns-webui-$(SMARTDNS_WEBUI_VERSION)/
+          ARCHIVE_PREFIX="smartdns-webui-${WEBUI_VERSION}/"
+          OUT_TGZ="${WEBUI_FILE:-smartdns-webui-${WEBUI_VERSION}.tar.gz}"
+
+          REPO_DIR=webui_repo
+          git config --global core.autocrlf false
+          git clone --no-tags --filter=tree:0 "$WEBUI_URL" "$REPO_DIR"
+          git -C "$REPO_DIR" fetch origin "$WEBUI_COMMIT" --depth=1
+          git -C "$REPO_DIR" checkout "$WEBUI_COMMIT"
+
+          # 生成可复现 .tar.gz：gzip -n 取消时间戳/文件名记录
+          GZIP=-n git -C "$REPO_DIR" archive --format=tar --prefix="$ARCHIVE_PREFIX" "$WEBUI_COMMIT" \
+            | gzip -n > "$OUT_TGZ"
+
+          SHA_WEBUI=$(sha256sum "$OUT_TGZ" | awk '{print $1}')
+          echo "sha_webui=$SHA_WEBUI" >> $GITHUB_OUTPUT
+          echo "MIRROR_HASH (webui): $SHA_WEBUI"
+
+      - name: Update Makefile.apk with new hashes
+        id: patch
+        run: |
+          MF=Makefile.apk
+          SHA_PKG='${{ steps.hash_pkg.outputs.sha_pkg }}'
+          SHA_WEBUI='${{ steps.hash_webui.outputs.sha_webui }}'
+
+          # 更新 PKG_MIRROR_HASH:=xxxx
+          # 仅替换第一处匹配，且保持键名和 := 之间可能的空格
+          sed -i -E "0,/^[[:space:]]*PKG_MIRROR_HASH[[:space:]]*:=.*/s//PKG_MIRROR_HASH:=${SHA_PKG}/" "$MF"
+
+          # 更新 Download/smartdns-webui 段中的 MIRROR_HASH:=xxxx
+          # 为避免误替换其它段，这里做个简单的区间限定（两步法）
+          # 先把整文件打印到临时文件，逐行处理
+          awk -v hash="$SHA_WEBUI" '
+            BEGIN{in_webui=0}
+            {
+              if ($0 ~ /^[[:space:]]*define[[:space:]]+Download\/smartdns-webui/) in_webui=1
+              if (in_webui && $0 ~ /^[[:space:]]*MIRROR_HASH[[:space:]]*:=/) {
+                sub(/:=.*/," := " hash)
+              }
+              print
+              if (in_webui && $0 ~ /^[[:space:]]*endef[[:space:]]*$/) in_webui=0
+            }' "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+
+          # 显示 diff
+          echo "---- DIFF ----"
+          git --no-pager diff -- "$MF" || true
+          echo "--------------"
+
+          # 如果没有变化则跳过提交
+          if git diff --quiet -- "$MF"; then
+            echo "no_change=true" >> $GITHUB_OUTPUT
+          else
+            echo "no_change=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit & push
+        if: ${{ steps.patch.outputs.no_change == 'false' }}
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add Makefile.apk
+          git commit -m "chore: update PKG_MIRROR_HASH and webui MIRROR_HASH"
+          git push origin HEAD:${{ github.ref_name }}
