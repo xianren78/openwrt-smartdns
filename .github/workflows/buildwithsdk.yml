@@ -306,18 +306,19 @@ jobs:
         run: |
           cd openwrt-sdk
           # Debug: Verify CFLAGS, LDFLAGS, PKG_CONFIG_PATH, and library paths
-          #echo "CUSTOM_CFLAGS=-I${{ github.workspace }}/openssl-install/usr/local/include"
-          #echo "CUSTOM_LDFLAGS=-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns"
-          #echo "CUSTOM_PKG_CONFIG_PATH=${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
-          #find staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib -type f -name "libssl*" -o -name "libcrypto*"
-          #find staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/openssl -type f
-          # Build with explicit CFLAGS and LDFLAGS
+          # echo "CUSTOM_CFLAGS=-I${{ github.workspace }}/openssl-install/usr/local/include"
+          # echo "CUSTOM_LDFLAGS=-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns"
+          # echo "CUSTOM_PKG_CONFIG_PATH=${{ github.workspace }}/openssl-install/usr/local/lib/pkgconfig"
+          # find staging_dir/toolchain-${{ matrix.package_arch }}_gcc-13.3.0_musl/usr/lib -type f -name "libssl*" -o -name "libcrypto*"
+          # find staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/openssl -type f
+          # unset github CI for rustc 
           unset CI
           unset GITHUB_ACTIONS
           unset GITHUB_RUN_ID
           unset GITHUB_WORKFLOW
           unset GITHUB_REPOSITORY
           unset RUNNER_OS
+          # Build with explicit CFLAGS and LDFLAGS
           make -j$(nproc) package/smartdns/compile \
             CFLAGS="-I${{ github.workspace }}/openssl-install/usr/local/include" \
             LDFLAGS="-L${{ github.workspace }}/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns" \
@@ -330,50 +331,70 @@ jobs:
           # Verify build outputs
           ls -l ${{ github.workspace }}/build/
 
-      - name: Generate release tag
-        id: tag
-        run: |
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7)
-          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}" >> $GITHUB_OUTPUT
-          echo "for OpenWrt 24.10 ${{ matrix.arch }} with OpenSSL v${{ steps.build-openssl.outputs.opensslver }}" > release.txt
-          echo "" >> release.txt
-          
-          # Fetch latest commit SHA and timestamp for smartdns
-          SMARTDNS_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/pymumu/smartdns/commits/master)
-          SMARTDNS_SHA=$(echo "$SMARTDNS_RESPONSE" | jq -r '.sha // "unknown"')
-          SMARTDNS_TIME=$(echo "$SMARTDNS_RESPONSE" | jq -r '.commit.committer.date // "unknown"')
-          if [ "$SMARTDNS_SHA" = "unknown" ] || [ "$SMARTDNS_TIME" = "unknown" ]; then
-            echo "Error: Failed to fetch smartdns commit SHA or timestamp" >&2
-            exit 1
-          fi
-          echo "Smartdns: https://github.com/pymumu/smartdns/commit/$SMARTDNS_SHA ($SMARTDNS_TIME)" >> release.txt
-          
-          # Fetch latest commit SHA and timestamp for smartdns-webui
-          SMARTDNS_WEBUI_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/pymumu/smartdns-webui/commits/main)
-          SMARTDNS_WEBUI_SHA=$(echo "$SMARTDNS_WEBUI_RESPONSE" | jq -r '.sha // "unknown"')
-          SMARTDNS_WEBUI_TIME=$(echo "$SMARTDNS_WEBUI_RESPONSE" | jq -r '.commit.committer.date // "unknown"')
-          if [ "$SMARTDNS_WEBUI_SHA" = "unknown" ] || [ "$SMARTDNS_WEBUI_TIME" = "unknown" ]; then
-            echo "Error: Failed to fetch smartdns-webui commit SHA or timestamp" >&2
-            exit 1
-          fi
-          echo "Smartdns-webui: https://github.com/pymumu/smartdns-webui/commit/$SMARTDNS_WEBUI_SHA ($SMARTDNS_WEBUI_TIME)" >> release.txt
-          
-          # Fetch latest commit SHA and timestamp for luci-app-smartdns
-          LUCI_APP_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/pymumu/luci-app-smartdns/commits/master)
-          LUCI_APP_SHA=$(echo "$LUCI_APP_RESPONSE" | jq -r '.sha // "unknown"')
-          LUCI_APP_TIME=$(echo "$LUCI_APP_RESPONSE" | jq -r '.commit.committer.date // "unknown"')
-          if [ "$LUCI_APP_SHA" = "unknown" ] || [ "$LUCI_APP_TIME" = "unknown" ]; then
-            echo "Error: Failed to fetch luci-app-smartdns commit SHA or timestamp" >&2
-            exit 1
-          fi
-          echo "luci-app-smartdns: https://github.com/pymumu/luci-app-smartdns/commit/$LUCI_APP_SHA ($LUCI_APP_TIME)" >> release.txt
-          
+      - name: Generate release tag 
+        id: tag 
+        run: | 
+          set -euo pipefail
+
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7) 
+          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}" >> $GITHUB_OUTPUT 
+          echo "for OpenWrt 24.10 ${{ matrix.arch }} with OpenSSL v${{ steps.build-openssl.outputs.opensslver }}" > release.txt 
+          echo "" >> release.txt 
+          echo "更新：" >> release.txt          
+
+          # 容错函数：仅当最新 commit 距当前 <= 24h 才写入；失败则 Warning 并跳过
+          append_repo_commit_if_fresh() {
+            local repo="$1"      # e.g. pymumu/smartdns
+            local branch="$2"    # e.g. master / main
+            local label="$3"     # e.g. Smartdns
+
+            local resp sha ts commit_epoch now_epoch delta curl_status
+
+            # 下面这段关闭严格模式，防止 API 抖动/解析失败触发整步失败
+            set +e
+            set +o pipefail
+            resp=$(curl -s \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${repo}/commits/${branch}")
+            curl_status=$?
+            set -e
+            set -o pipefail
+
+            if [ $curl_status -ne 0 ] || [ -z "$resp" ]; then
+              echo "Warning: ${label} curl failed or empty response, skip writing." >&2
+              return 0
+            fi
+
+            sha=$(echo "$resp" | jq -r '.sha // empty' 2>/dev/null)
+            ts=$(echo "$resp" | jq -r '.commit.committer.date // empty' 2>/dev/null)
+
+            if [[ -z "$sha" || -z "$ts" ]]; then
+              echo "Warning: ${label} missing sha or timestamp, skip writing." >&2
+              return 0
+            fi
+
+            if ! commit_epoch=$(date -u -d "$ts" +%s 2>/dev/null); then
+              echo "Warning: ${label} timestamp parse failed: $ts" >&2
+              return 0
+            fi
+
+            now_epoch=$(date -u +%s)
+            delta=$(( now_epoch - commit_epoch ))
+
+            # 24 小时 = 86400 秒
+            if (( delta <= 86400 )); then
+              echo "${label}: https://github.com/${repo}/commit/${sha} (${ts})" >> release.txt
+            else
+              echo "Skip ${label}, latest commit older than 24h (${ts})"
+            fi
+          }
+
+          # 三个仓库分别检查并按需写入
+          append_repo_commit_if_fresh "pymumu/smartdns" "master" "Smartdns"
+          append_repo_commit_if_fresh "pymumu/smartdns-webui" "main" "Smartdns-webui"
+          append_repo_commit_if_fresh "pymumu/luci-app-smartdns" "master" "luci-app-smartdns"
+
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Upload to release
