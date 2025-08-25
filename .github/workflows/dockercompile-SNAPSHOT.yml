@@ -58,6 +58,7 @@ jobs:
       - name: Set timezone
         run: |
           sudo timedatectl set-timezone "Asia/Shanghai"
+
       - name: Install dependencies
         run: |
           sudo apt-get update
@@ -75,8 +76,9 @@ jobs:
           # Install all required dependencies
           sudo apt-get install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd docker-ce docker-ce-cli
           sudo systemctl start docker
+          mkdir -p ${{ github.workspace }}/build
           # Verify Docker installation
-          docker --version
+          # docker --version
 
       - name: Build OpenSSL 3.5 in Docker
         id: build-openssl
@@ -110,12 +112,28 @@ jobs:
       - name: Pull OpenWrt SDK Docker image
         run: |
           docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-SNAPSHOT
+
       - name: Create and start SDK container
         run: |
           docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-SNAPSHOT sleep infinity
           docker start sdk-build-${{ matrix.arch }}
           docker exec sdk-build-${{ matrix.arch }} sh -c "cd /builder"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./setup.sh"
+
+      - name: Import custom APK signing keys into container
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p keys
+          echo "${{ secrets.APK_PRIVATE_B64 }}" | base64 -d > keys/private-key.pem
+          echo "${{ secrets.APK_PUBLIC_B64 }}"  | base64 -d > keys/public-key.pem
+          chmod 600 keys/private-key.pem
+          chmod 644 keys/public-key.pem
+          cp keys/public-key.pem  ${{ github.workspace }}/build/selfsign-smartdns.pem
+          docker cp keys/private-key.pem sdk-build-${{ matrix.arch }}:/builder/private-key.pem
+          docker cp keys/public-key.pem  sdk-build-${{ matrix.arch }}:/builder/public-key.pem
+          docker exec sdk-build-${{ matrix.arch }} sh -lc 'chmod 600 /builder/private-key.pem && chmod 644 /builder/public-key.pem'      
+
       - name: Install Rust in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "apt-get update && apt-get install -y curl gcc make python3 git pkg-config nodejs clang llvm-dev libclang-dev"
@@ -315,7 +333,6 @@ jobs:
           #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
           docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/smartdns/compile CFLAGS=\"-I/workspace/openssl-install/usr/local/include\" LDFLAGS=\"-L/workspace/openssl-install/usr/local/lib -Wl,-rpath=/usr/lib/smartdns\" PKG_CONFIG_PATH=\"/workspace/openssl-install/usr/local/lib/pkgconfig\""
           docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/luci-app-smartdns/compile"
-          mkdir -p ${{ github.workspace }}/build
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.apk /workspace/build/ || true"
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.apk /workspace/build/ || true"
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns*.apk /workspace/build/ || true"
@@ -396,6 +413,8 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
-          files: ${{ github.workspace }}/build/*.apk
+          files: |
+            ${{ github.workspace }}/build/*.apk
+            ${{ github.workspace }}/build/*.pem
           prerelease: true
 
