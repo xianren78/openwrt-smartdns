@@ -123,6 +123,16 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
 
+      - name: Clone smartdns source into feeds in container
+        run: |                                                          
+          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci/applications/luci-app-smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mv -f feeds/packages/net/smartdns/Makefile.native feeds/packages/net/smartdns/Makefile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
+
       - name: Replace OpenSSL makefiles after feeds install
         shell: bash
         run: |
@@ -139,16 +149,6 @@ jobs:
             cp -f "$OPENSSL_SRC/Makefile" "$OPENSSL_DST/Makefile"
             cp -f "$OPENSSL_SRC/Config.in" "$OPENSSL_DST/Config.in"
           '
-
-      - name: Clone smartdns source into feeds in container
-        run: |                                                          
-          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci/applications/luci-app-smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "mv -f feeds/packages/net/smartdns/Makefile.native feeds/packages/net/smartdns/Makefile"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
 
       - name: Configure build in container
         run: |
