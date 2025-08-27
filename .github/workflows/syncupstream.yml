@@ -76,16 +76,17 @@ jobs:
             fi
           }
 
-          # 依次尝试更新三个文件（存在才改）
+          # 依次尝试更新四个文件（存在才改）
           update_file Makefile
           update_file Makefile.sdk
           update_file Makefile.apk
+          update_file Makefile.native
 
           if [ "$UPDATE_NEEDED" = true ]; then
             git config user.name "GitHub Actions"
             git config user.email "actions@github.com"
             # 三个都 add（不存在不会报错）
-            git add Makefile Makefile.sdk Makefile.apk
+            git add Makefile Makefile.sdk Makefile.apk Makefile.native
             git commit -m "$COMMIT_MESSAGE smartdns/webui to latest commits"
             git push origin HEAD:${{ github.ref_name }}
           else

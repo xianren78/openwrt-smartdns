@@ -1,0 +1,409 @@
+name: OP SNAPSHOT SDK docker build smartdns
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+jobs:
+  get-version:
+    runs-on: ubuntu-latest
+    outputs:
+      CUR_VERSION: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Clone smartdns repo and extract version
+        run: |
+          git clone https://github.com/xianren78/openwrt-smartdns.git smartdns-repo
+          cd smartdns-repo
+          if [ -f Makefile ]; then
+            VERSION=$(grep "^PKG_VERSION:=" Makefile | cut -d'=' -f2 | tr -d '[:space:]' || echo 'unknown')
+          else
+            VERSION="unknown"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+        id: version
+  build-smartdns:
+    needs: get-version
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            target: x86
+            subtarget: 64
+            package_arch: x86_64
+            goarch: x86_64
+            docker_tag: x86-64
+            rust_target: x86_64-unknown-linux-musl
+          - arch: aarch64
+            target: armsr
+            subtarget: armv8
+            package_arch: aarch64_generic
+            goarch: aarch64
+            docker_tag: aarch64_generic
+            rust_target: aarch64-unknown-linux-musl
+      fail-fast: false
+    runs-on: ubuntu-latest
+    env:
+      ARCH: ${{ matrix.arch }}
+      GOARCH: ${{ matrix.goarch }}
+      PKG_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Set timezone
+        run: |
+          sudo timedatectl set-timezone "Asia/Shanghai"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # Remove conflicting containerd packages
+          sudo apt-get remove -y containerd containerd.io docker docker.io || true
+          sudo apt-get autoremove -y
+          # Install Docker from the official repository
+          sudo apt-get install -y ca-certificates curl gnupg
+          sudo install -m 0755 -d /etc/apt/keyrings
+          curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+          sudo chmod a+r /etc/apt/keyrings/docker.gpg
+          echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+            $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+          sudo apt-get update
+          # Install all required dependencies
+          sudo apt-get install -y build-essential ccache git file g++ gawk gettext libncurses-dev libssl-dev zlib1g-dev zstd docker-ce docker-ce-cli
+          sudo systemctl start docker
+          mkdir -p ${{ github.workspace }}/build
+          # Verify Docker installation
+          # docker --version
+
+      - name: Pull OpenWrt SDK Docker image
+        run: |
+          docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-SNAPSHOT
+
+      - name: Create and start SDK container
+        run: |
+          docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-SNAPSHOT sleep infinity
+          docker start sdk-build-${{ matrix.arch }}
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cd /builder"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./setup.sh"
+
+      - name: Import custom APK signing keys into container
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p keys
+          echo "${{ secrets.APK_PRIVATE_B64 }}" | base64 -d > keys/private-key.pem
+          echo "${{ secrets.APK_PUBLIC_B64 }}"  | base64 -d > keys/public-key.pem
+          chmod 600 keys/private-key.pem
+          chmod 644 keys/public-key.pem
+          cp keys/public-key.pem  ${{ github.workspace }}/build/selfsign-smartdns.pem
+          docker cp keys/private-key.pem sdk-build-${{ matrix.arch }}:/builder/private-key.pem
+          docker cp keys/public-key.pem  sdk-build-${{ matrix.arch }}:/builder/public-key.pem
+          docker exec sdk-build-${{ matrix.arch }} sh -lc 'chmod 600 /builder/private-key.pem && chmod 644 /builder/public-key.pem'      
+
+      - name: Install Rust in container
+        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c "apt-get update && apt-get install -y curl gcc make python3 git pkg-config nodejs clang llvm-dev libclang-dev"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "echo 'export PATH=/root/.cargo/bin:\$PATH' >> /root/.profile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup toolchain install 1.89.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup default 1.89.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.rust_target }} --toolchain 1.89.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && node -v"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustc --version && cargo --version && npm --version"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
+
+      - name: Update and install feeds in container
+        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cd /builder"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
+
+      - name: Replace OpenSSL makefiles after feeds install
+        run: |
+          set -euo pipefail
+          docker exec sdk-build-${{ matrix.arch }} sh -lc '
+            set -euo pipefail
+            cd /builder
+            OPENSSL_DST="package/libs/openssl"
+            OPENSSL_SRC="feeds/packages/net/smartdns/patch/openssl"
+            # 基本检查
+            [ -d "$OPENSSL_DST" ] || { echo "ERROR: $OPENSSL_DST missing"; exit 1; }
+            [ -f "$OPENSSL_SRC/Makefile" ] || { echo "ERROR: $OPENSSL_SRC/Makefile missing"; exit 1; }
+            [ -f "$OPENSSL_SRC/Config.in" ] || { echo "ERROR: $OPENSSL_SRC/Config.in missing"; exit 1; }
+            # 删除并覆盖
+            rm -f "$OPENSSL_DST/Makefile" "$OPENSSL_DST/Config.in"
+            cp -f "$OPENSSL_SRC/Makefile" "$OPENSSL_DST/Makefile"
+            cp -f "$OPENSSL_SRC/Config.in" "$OPENSSL_DST/Config.in"
+          '
+
+      - name: Clone smartdns source into feeds in container
+        run: |                                                          
+          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci/applications/luci-app-smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mv -f feeds/packages/net/smartdns/Makefile.native feeds/packages/net/smartdns/Makefile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
+
+      - name: Configure build in container
+        run: |
+           #docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "cp -r /workspace/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl.so"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "ln -sf libcrypto.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto.so"
+          # Debug: Verify symbolic links
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl*"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto*"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/host/stamp && touch staging_dir/host/stamp/.rust_installed"
+          docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > .config
+          CONFIG_PACKAGE_smartdns=y
+          CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_luci-compat=y
+          CONFIG_PACKAGE_luci-app-smartdns=y
+          CONFIG_PACKAGE_libopenssl=y
+          CONFIG_OPENSSL_WITH_QUIC=y
+          CONFIG_TARGET_IMAGES=n
+          EOF'
+          docker exec sdk-build-${{ matrix.arch }} sh -c "make defconfig"
+
+      - name: Download sources with auto-fix on hash mismatch (ANSI-safe, non-blocking)
+        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c '
+            set -e
+            cd /builder
+            export TERM=dumb LANG=C LC_ALL=C
+            MF="feeds/packages/net/smartdns/Makefile"
+
+            # --- helpers ---
+            strip_ansi() { sed -r "s/\x1B\[[0-9;]*[mK]//g" | tr -d "\r"; }
+
+            update_webui_hash() {
+              local sha="$1"
+              # 1) Download/smartdns-webui 段 MIRROR_HASH
+              awk -v newsha="$sha" "
+                BEGIN{inblk=0}
+                /^define[[:space:]]+Download\/smartdns-webui/ {inblk=1}
+                inblk && /^[[:space:]]*MIRROR_HASH[[:space:]]*:=/ { sub(/:=.*/,\":= \" newsha \"\"); }
+                {print}
+                inblk && /^endef/ {inblk=0}
+              " "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+              # 2) 同步 SMARTDNS_WEBUI_HASH（供 HASH:=$(SMARTDNS_WEBUI_HASH) 使用）
+              if grep -q "^SMARTDNS_WEBUI_HASH:=" "$MF"; then
+                sed -i -E "s/^SMARTDNS_WEBUI_HASH:=.*/SMARTDNS_WEBUI_HASH:=$sha/" "$MF"
+              else
+                if grep -n "^SMARTDNS_WEBUI_FILE:=" "$MF" >/dev/null; then
+                  line=$(grep -n "^SMARTDNS_WEBUI_FILE:=" "$MF" | head -n1 | cut -d: -f1)
+                else
+                  line=$(grep -n "^SMARTDNS_WEBUI_VERSION:=" "$MF" | head -n1 | cut -d: -f1)
+                fi
+                awk -v ln="$line" -v s="$sha" "NR==ln{print; print \"SMARTDNS_WEBUI_HASH:=\" s; next} {print}" "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+              fi
+              echo "[patched] webui hash -> $sha"
+            }
+
+            update_main_hash() {
+              local sha="$1"
+              if grep -q "^PKG_MIRROR_HASH:=" "$MF"; then
+                sed -i -E "s/^PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=$sha/" "$MF"
+              else
+                awk -v s="$sha" "
+                  { print }
+                  /^PKG_SOURCE_VERSION:=/ && !p { print \"PKG_MIRROR_HASH:=\" s; p=1 }
+                " "$MF" > "$MF.tmp" && mv "$MF.tmp" "$MF"
+              fi
+              if grep -q "^PKG_HASH:=" "$MF"; then
+                sed -i -E "s/^PKG_HASH:=.*/PKG_HASH:=$sha/" "$MF"
+              fi
+              echo "[patched] main hash -> $sha"
+            }
+
+            # 确保已有 .config（兜底）
+            [ -f .config ] || { echo "CONFIG_TARGET_IMAGES=n" > .config; make defconfig; }
+
+            attempt=1; max=5
+            while [ $attempt -le $max ]; do
+              echo ">>> Attempt #$attempt: downloading sources"
+              set +e
+              make package/smartdns/download V=s >dl_raw.log 2>&1
+              ret=$?
+              set -e
+
+              # 清洗日志，便于正则匹配
+              cat dl_raw.log | strip_ansi > dl.log
+
+              if [ $ret -eq 0 ]; then
+                echo "Download successful."
+                break
+              fi
+
+              # 兼容多种提示：Hash mismatch / HASH mismatch / Hash check failed
+              if grep -qiE "Hash (mismatch|check failed)|Hash mismatch" dl.log; then
+                # 把所有包含 "Hash mismatch for file ..." 的行抓出来处理
+                # 允许 expected/got 为 40~64 位十六进制（个别日志长度异常也不影响）
+                mism_lines=$(grep -E "Hash mismatch for file .*: expected [0-9A-Fa-f]{40,64}, got [0-9A-Fa-f]{40,64}" dl.log || true)
+
+                # 若有另一种格式 "Hash check failed for <file>"
+                if [ -z "$mism_lines" ]; then
+                  mism_lines=$(grep -E "Hash check failed for .*" dl.log || true)
+                fi
+
+                if [ -z "$mism_lines" ]; then
+                  echo "Found hash-related error but could not extract lines. Showing context:"
+                  tail -n 200 dl.log
+                  attempt=$((attempt+1))
+                  continue
+                fi
+
+                # 逐条行处理
+                echo "$mism_lines" | while IFS= read -r line; do
+                  # 文件名（两种格式都尝试）
+                  fname=$(printf "%s\n" "$line" | sed -nE "s/.*Hash mismatch for file ([^:]+):.*/\1/p")
+                  [ -n "$fname" ] || fname=$(printf "%s\n" "$line" | sed -nE "s/.*Hash check failed for ([^ ]*).*/\1/p")
+
+                  # got 的 SHA（如果本行没 got，就在整个日志里用该文件名就近找）
+                  got=$(printf "%s\n" "$line" | sed -nE "s/.* got ([0-9A-Fa-f]{40,64}).*/\1/p")
+                  if [ -z "$got" ] && [ -n "$fname" ]; then
+                    got=$(grep -F "Hash mismatch for file $fname:" dl.log | sed -nE "s/.* got ([0-9A-Fa-f]{40,64}).*/\1/p" | tail -n1)
+                  fi
+                  if [ -z "$got" ]; then
+                    # 兜底：全局最后一个 got
+                    got=$(sed -nE "s/.* got ([0-9A-Fa-f]{40,64}).*/\1/p" dl.log | tail -n1)
+                  fi
+
+                  if [ -z "$fname" ] || [ -z "$got" ]; then
+                    echo "Could not extract fname/got from line: $line"
+                    return 0
+                  fi
+
+                  echo "Mismatch -> file=$fname  got=$got"
+                  # 修补对应 hash
+                  if printf "%s" "$fname" | grep -q "smartdns-webui-"; then
+                    update_webui_hash "$got"
+                  else
+                    update_main_hash "$got"
+                  fi
+
+                  # 删除已下载的旧文件，强制重下
+                  if [ -f "dl/$fname" ]; then
+                    rm -f "dl/$fname" || true
+                  fi
+                done
+              else
+                echo "Download failed (not recognized as hash mismatch). Will retry for robustness."
+                tail -n 120 dl.log || true
+              fi
+
+              attempt=$((attempt+1))
+            done
+
+            if [ $attempt -gt $max ]; then
+              echo "Failed to resolve hash mismatch after $max attempts."
+              echo "Tail of sanitized log:"
+              tail -n 200 dl.log || true
+              exit 1
+            fi
+
+            echo "--- Final hash values ---"
+            grep -E "^(PKG_MIRROR_HASH|PKG_HASH|SMARTDNS_WEBUI_HASH):=" "$MF" || true
+            awk "/^define[[:space:]]+Download\\/smartdns-webui/{f=1} f&&/^\\s*MIRROR_HASH/{print} f&&/^endef/{f=0}" "$MF" || true
+          '
+
+      - name: Build smartdns and luci-app-smartdns in container
+        run: |
+          #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/smartdns/compile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/luci-app-smartdns/compile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.apk /workspace/build/ || true"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.apk /workspace/build/ || true"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns*.apk /workspace/build/ || true"
+          # Verify build outputs
+          ls -l ${{ github.workspace }}/build/
+
+      - name: Generate release tag 
+        id: tag 
+        run: | 
+          set -euo pipefail
+
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7) 
+          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}-SNAPSHOT-native" >> $GITHUB_OUTPUT 
+          echo "for OpenWrt SNAPSHOT ${{ matrix.arch }}" > release.txt 
+          echo "" >> release.txt 
+          echo "更新：" >> release.txt          
+
+          # 容错函数：仅当最新 commit 距当前 <= 24h 才写入；失败则 Warning 并跳过
+          append_repo_commit_if_fresh() {
+            local repo="$1"      # e.g. pymumu/smartdns
+            local branch="$2"    # e.g. master / main
+            local label="$3"     # e.g. Smartdns
+
+            local resp sha ts commit_epoch now_epoch delta curl_status
+
+            # 下面这段关闭严格模式，防止 API 抖动/解析失败触发整步失败
+            set +e
+            set +o pipefail
+            resp=$(curl -s \
+              -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${repo}/commits/${branch}")
+            curl_status=$?
+            set -e
+            set -o pipefail
+
+            if [ $curl_status -ne 0 ] || [ -z "$resp" ]; then
+              echo "Warning: ${label} curl failed or empty response, skip writing." >&2
+              return 0
+            fi
+
+            sha=$(echo "$resp" | jq -r '.sha // empty' 2>/dev/null)
+            ts=$(echo "$resp" | jq -r '.commit.committer.date // empty' 2>/dev/null)
+
+            if [[ -z "$sha" || -z "$ts" ]]; then
+              echo "Warning: ${label} missing sha or timestamp, skip writing." >&2
+              return 0
+            fi
+
+            if ! commit_epoch=$(date -u -d "$ts" +%s 2>/dev/null); then
+              echo "Warning: ${label} timestamp parse failed: $ts" >&2
+              return 0
+            fi
+
+            now_epoch=$(date -u +%s)
+            delta=$(( now_epoch - commit_epoch ))
+
+            # 24 小时 = 86400 秒
+            if (( delta <= 86400 )); then
+              echo "${label}: https://github.com/${repo}/commit/${sha} (${ts})" >> release.txt
+            else
+              echo "Skip ${label}, latest commit older than 24h (${ts})"
+            fi
+          }
+
+          # 三个仓库分别检查并按需写入
+          append_repo_commit_if_fresh "pymumu/smartdns" "master" "Smartdns"
+          append_repo_commit_if_fresh "pymumu/smartdns-webui" "main" "Smartdns-webui"
+          append_repo_commit_if_fresh "pymumu/luci-app-smartdns" "master" "luci-app-smartdns"
+
+          echo "status=success" >> $GITHUB_OUTPUT
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v1
+        if: steps.tag.outputs.status == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          body_path: release.txt
+          files: |
+            ${{ github.workspace }}/build/*.apk
+            ${{ github.workspace }}/build/*.pem
+          prerelease: true
+
