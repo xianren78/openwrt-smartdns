@@ -153,7 +153,7 @@ jobs:
 
       - name: Configure build in container
         run: |
-           #docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
+          #docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
           #docker exec sdk-build-${{ matrix.arch }} sh -c "cp -r /workspace/openssl-install/usr/local/include/openssl staging_dir/target-${{ matrix.package_arch }}_musl/usr/include/"
           #docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib"
           #docker exec sdk-build-${{ matrix.arch }} sh -c "cp /workspace/openssl-install/usr/local/lib/libssl.so.3 staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/"
@@ -164,6 +164,7 @@ jobs:
           #docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libssl*"
           #docker exec sdk-build-${{ matrix.arch }} sh -c "ls -l staging_dir/toolchain-${{ matrix.package_arch }}_gcc-14.3.0_musl/usr/lib/libcrypto*"
           #docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/host/stamp && touch staging_dir/host/stamp/.rust_installed"
+          
           docker exec sdk-build-${{ matrix.arch }} sh -c 'cat <<EOF > .config
           CONFIG_PACKAGE_smartdns=y
           CONFIG_PACKAGE_luci=y
