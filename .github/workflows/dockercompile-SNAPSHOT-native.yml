@@ -1,4 +1,4 @@
-name: OP SNAPSHOT SDK docker build smartdns
+name: OP SNAPSHOT SDK docker build smartdns with native openssl
 on:
   push:
     branches:
