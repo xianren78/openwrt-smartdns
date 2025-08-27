@@ -130,13 +130,11 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} bash -lc '
             set -euo pipefail
             cd /builder
-            OPENSSL_DST="package/libs/openssl"
+            OPENSSL_DST="feeds/base/package/libs/openssl"
             OPENSSL_SRC="feeds/packages/net/smartdns/patch/openssl"
-            # 基本检查
             [ -d "$OPENSSL_DST" ] || { echo "ERROR: $OPENSSL_DST missing"; exit 1; }
             [ -f "$OPENSSL_SRC/Makefile" ] || { echo "ERROR: $OPENSSL_SRC/Makefile missing"; exit 1; }
             [ -f "$OPENSSL_SRC/Config.in" ] || { echo "ERROR: $OPENSSL_SRC/Config.in missing"; exit 1; }
-            # 删除并覆盖
             rm -f "$OPENSSL_DST/Makefile" "$OPENSSL_DST/Config.in"
             cp -f "$OPENSSL_SRC/Makefile" "$OPENSSL_DST/Makefile"
             cp -f "$OPENSSL_SRC/Config.in" "$OPENSSL_DST/Config.in"
