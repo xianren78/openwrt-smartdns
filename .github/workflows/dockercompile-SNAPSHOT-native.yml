@@ -124,9 +124,10 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
 
       - name: Replace OpenSSL makefiles after feeds install
+        shell: bash
         run: |
           set -euo pipefail
-          docker exec sdk-build-${{ matrix.arch }} sh -lc '
+          docker exec sdk-build-${{ matrix.arch }} bash -lc '
             set -euo pipefail
             cd /builder
             OPENSSL_DST="package/libs/openssl"
