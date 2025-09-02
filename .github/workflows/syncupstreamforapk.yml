@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: '15 */4 * * *'   # UTC，每4小时
+    - cron: '16 */4 * * *'   # UTC，每4小时
   workflow_dispatch:
 
 jobs:
@@ -24,19 +24,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Get current versions from Makefile
+      - name: Get current versions from Makefile.native
         run: |
-          CURRENT_SMARTDNS_VERSION=$(grep -E '^PKG_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
-          CURRENT_WEBUI_VERSION=$(grep -E '^SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
+          CURRENT_SMARTDNS_VERSION=$(grep -E '^PKG_SOURCE_VERSION:=' Makefile.native | sed 's/.*:=//')
+          CURRENT_WEBUI_VERSION=$(grep -E '^SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile.native | sed 's/.*:=//')
           echo "CURRENT_SMARTDNS_VERSION=$CURRENT_SMARTDNS_VERSION" >> $GITHUB_ENV
           echo "CURRENT_WEBUI_VERSION=$CURRENT_WEBUI_VERSION" >> $GITHUB_ENV
 
       - name: Get latest commit SHA from smartdns repo
         run: |
           LATEST_SMARTDNS_COMMIT=$(curl -s -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/xianren78/smartdns/commits/master | jq -r '.sha // empty')
+            https://api.github.com/repos/pymumu/smartdns/commits/master | jq -r '.sha // empty')
           if [ -z "$LATEST_SMARTDNS_COMMIT" ]; then
-            echo "Failed to fetch latest commit from xianren78/smartdns" >&2
+            echo "Failed to fetch latest commit from pymumu/smartdns" >&2
             exit 1
           fi
           echo "LATEST_SMARTDNS_COMMIT=$LATEST_SMARTDNS_COMMIT" >> $GITHUB_ENV
@@ -52,7 +52,7 @@ jobs:
             echo "LATEST_WEBUI_COMMIT=$LATEST_WEBUI_COMMIT" >> $GITHUB_ENV
           fi
 
-      - name: Update Makefiles if versions differ
+      - name: Update Makefile if versions differ
         if: ${{ env.CURRENT_SMARTDNS_VERSION != env.LATEST_SMARTDNS_COMMIT || env.CURRENT_WEBUI_VERSION != env.LATEST_WEBUI_COMMIT }}
         run: |
           set -e
@@ -76,17 +76,13 @@ jobs:
             fi
           }
 
-          # 依次尝试更新三个文件（存在才改）
-          update_file Makefile
-          update_file Makefile.sdk
-          update_file Makefile.apk
+          update_file Makefile.native
 
           if [ "$UPDATE_NEEDED" = true ]; then
             git config user.name "GitHub Actions"
             git config user.email "actions@github.com"
-            # 三个都 add（不存在不会报错）
-            git add Makefile Makefile.sdk Makefile.apk
-            git commit -m "$COMMIT_MESSAGE smartdns/webui to latest commits"
+            git add Makefile.native
+            git commit -m "$COMMIT_MESSAGE smartdns/webui to SNAPSHOT latest commits"
             git push origin HEAD:${{ github.ref_name }}
           else
             echo "No changes needed."

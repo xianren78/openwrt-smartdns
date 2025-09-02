@@ -5,6 +5,9 @@ on:
       - master
     paths-ignore:
       - '.github/workflows/**'
+      - 'Makefile'
+      - 'Makefile.sdk'
+      - 'Makefile.apk'
   workflow_dispatch:
 
 jobs:
