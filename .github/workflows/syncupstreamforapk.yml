@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: '16 */4 * * *'   # UTC，每4小时
+    - cron: '36 */4 * * *'   # UTC，每4小时
   workflow_dispatch:
 
 jobs:
