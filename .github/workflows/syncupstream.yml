@@ -24,10 +24,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Get current versions from Makefile
+      - name: Get current versions from Makefile.ipk
         run: |
-          CURRENT_SMARTDNS_VERSION=$(grep -E '^PKG_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
-          CURRENT_WEBUI_VERSION=$(grep -E '^SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
+          CURRENT_SMARTDNS_VERSION=$(grep -E '^PKG_SOURCE_VERSION:=' Makefile.ipk | sed 's/.*:=//')
+          CURRENT_WEBUI_VERSION=$(grep -E '^SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile.ipk | sed 's/.*:=//')
           echo "CURRENT_SMARTDNS_VERSION=$CURRENT_SMARTDNS_VERSION" >> $GITHUB_ENV
           echo "CURRENT_WEBUI_VERSION=$CURRENT_WEBUI_VERSION" >> $GITHUB_ENV
 
@@ -77,7 +77,7 @@ jobs:
           }
 
           # 依次尝试更新三个文件（存在才改）
-          update_file Makefile
+          update_file Makefile.ipk
           update_file Makefile.sdk
           update_file Makefile.apk
 
@@ -85,7 +85,7 @@ jobs:
             git config user.name "GitHub Actions"
             git config user.email "actions@github.com"
             # 三个都 add（不存在不会报错）
-            git add Makefile Makefile.sdk Makefile.apk
+            git add Makefile.ipk Makefile.sdk Makefile.apk
             git commit -m "$COMMIT_MESSAGE smartdns/webui to latest commits"
             git push origin HEAD:${{ github.ref_name }}
           else

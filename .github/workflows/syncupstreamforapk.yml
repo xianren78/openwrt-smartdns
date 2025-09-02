@@ -1,4 +1,4 @@
-name: Upsteam SmartDNS and WebUI Package Versions update
+name: for SNAPSHOT Upsteam SmartDNS and WebUI Package Versions update
 
 permissions:
   contents: write
@@ -24,10 +24,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq
 
-      - name: Get current versions from Makefile.native
+      - name: Get current versions from Makefile
         run: |
-          CURRENT_SMARTDNS_VERSION=$(grep -E '^PKG_SOURCE_VERSION:=' Makefile.native | sed 's/.*:=//')
-          CURRENT_WEBUI_VERSION=$(grep -E '^SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile.native | sed 's/.*:=//')
+          CURRENT_SMARTDNS_VERSION=$(grep -E '^PKG_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
+          CURRENT_WEBUI_VERSION=$(grep -E '^SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
           echo "CURRENT_SMARTDNS_VERSION=$CURRENT_SMARTDNS_VERSION" >> $GITHUB_ENV
           echo "CURRENT_WEBUI_VERSION=$CURRENT_WEBUI_VERSION" >> $GITHUB_ENV
 
@@ -76,13 +76,13 @@ jobs:
             fi
           }
 
-          update_file Makefile.native
+          update_file Makefile
 
           if [ "$UPDATE_NEEDED" = true ]; then
             git config user.name "GitHub Actions"
             git config user.email "actions@github.com"
-            git add Makefile.native
-            git commit -m "$COMMIT_MESSAGE smartdns/webui to SNAPSHOT latest commits"
+            git add Makefile
+            git commit -m "$COMMIT_MESSAGE smartdns/webui for SNAPSHOT to latest commits"
             git push origin HEAD:${{ github.ref_name }}
           else
             echo "No changes needed."

@@ -10,8 +10,8 @@ PKG_VERSION:=1.2025.46.2
 PKG_RELEASE:=5
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/xianren78/smartdns.git
-PKG_SOURCE_VERSION:=ff800ff99c7b9fd5e88dd72a1d81b766bcf14392
+PKG_SOURCE_URL:=https://github.com/pymumu/smartdns.git
+PKG_SOURCE_VERSION:=4027503602c1dab32d2df5b8a471bc5778d1a536
 PKG_MIRROR_HASH:=e737da5ef61b4861979ddd2b7c1fa3687882a4219d43b0b77fb82f826ff1de71
 
 SMARTDNS_WEBUI_VERSION:=1.0.0
@@ -46,7 +46,7 @@ endef
 define Package/smartdns
   $(Package/smartdns/default)
   TITLE:=smartdns server
-  DEPENDS:=+libpthread +libatomic
+  DEPENDS:=+libpthread +libopenssl +libatomic
 endef
 
 define Package/smartdns/description
@@ -73,9 +73,6 @@ define Package/smartdns/install
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/blacklist-ip.conf $(1)/etc/smartdns/blacklist-ip.conf
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/custom.conf $(1)/etc/smartdns/custom.conf
 	$(INSTALL_CONF) $(PKG_BUILD_DIR)/package/openwrt/files/etc/config/smartdns $(1)/etc/config/smartdns
-	$(INSTALL_DIR) $(1)/usr/lib/smartdns
-	$(CP) /workspace/openssl-install/usr/local/lib/libssl.so.3 $(1)/usr/lib/smartdns/
-	$(CP) /workspace/openssl-install/usr/local/lib/libcrypto.so.3 $(1)/usr/lib/smartdns/
 endef
 
 define Package/smartdns-ui

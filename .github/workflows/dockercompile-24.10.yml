@@ -20,8 +20,8 @@ jobs:
         run: |
           git clone https://github.com/xianren78/openwrt-smartdns.git smartdns-repo
           cd smartdns-repo
-          if [ -f Makefile ]; then
-            VERSION=$(grep "^PKG_VERSION:=" Makefile | cut -d'=' -f2 | tr -d '[:space:]' || echo 'unknown')
+          if [ -f Makefile.ipk ]; then
+            VERSION=$(grep "^PKG_VERSION:=" Makefile.ipk | cut -d'=' -f2 | tr -d '[:space:]' || echo 'unknown')
           else
             VERSION="unknown"
           fi
@@ -135,6 +135,7 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/packages/net/smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "rm -rf feeds/luci/applications/luci-app-smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/xianren78/openwrt-smartdns.git feeds/packages/net/smartdns"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "mv -f feeds/packages/net/smartdns/Makefile.ipk feeds/packages/net/smartdns/Makefile"
           docker exec sdk-build-${{ matrix.arch }} sh -c "git clone https://github.com/pymumu/luci-app-smartdns.git feeds/luci/applications/luci-app-smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
