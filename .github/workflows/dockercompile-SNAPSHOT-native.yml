@@ -334,7 +334,7 @@ jobs:
           set -euo pipefail
 
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7) 
-          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}-SNAPSHOT-native" >> $GITHUB_OUTPUT 
+          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}-SNAPSHOT" >> $GITHUB_OUTPUT 
           echo "for OpenWrt SNAPSHOT ${{ matrix.arch }}" > release.txt 
           echo "" >> release.txt 
           echo "更新：" >> release.txt          
