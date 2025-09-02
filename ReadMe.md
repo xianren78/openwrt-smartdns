@@ -1,6 +1,29 @@
-# openwrt-smartdns
+# openwrt-smartdns actions编译
 
-此仓库为smartdns独立仓库，为单独编译使用，可配合luci-app-smartdns一起使用。  
+1, 根据[smartdns](https://github.com/pymumu/smartdns)、[webui](https://github.com/pymumu/smartdns-webui) 和[luci-app-smartdns](https://github.com/pymumu/luci-app-smartdns)的最新 commit 使用 **openssl 3.5** 进行 **nightly** 编译
+
+2, 使用 **OpenWrt 24.10 SDK**和 **SNAPSHOT SDK** 编译，支持**X86-64**和**aarch64_generic**两种架构，其他版本OP请自行测试
+
+3, 使用 OpenWrt sdk docker外置openssl进行编译，编译时长在20分钟以内；如果用原生openssl编译，时长约30分钟；如不使用docker方式，直接sdk下编译，由于需要编译rust时长50分钟。
+
+4, 对Makefile的修改主要是 OPENSSL库外置还是内置，是否在线编译RUST，另外SNAPSHOT版对Hash match要求严格，不能skip。
+
+5, SNAPSHOT版证书问题，[看看这儿](https://github.com/pymumu/smartdns/discussions/2081#discussioncomment-14199079)
+
+6, actions绝大部分都是AI糊的，如有需要自行取用。
+
+以下是LUCI最新特性展示， LUCI也支持使用 PikuZheng 大佬编译的[smartdns_with_ui（tag名有with_ui字样）](https://github.com/PikuZheng/smartdns/releases)：
+
+![Luci支持WEBUI](https://github.com/user-attachments/assets/ef47d004-3b6f-4338-a08e-bf2be95c8ad5)
+
+![支持QUIC等协议](https://github.com/user-attachments/assets/6df1019d-2771-437d-a2cd-cf2032eb0abb)
+
+![支持查看日志](https://github.com/user-attachments/assets/7b6ed9b9-dd66-4ff8-b252-6e8a430ac954)
+
+
+# 以下是原仓库说明，支持OpenWrt下集成编译
+
+原仓库为smartdns独立仓库，为单独编译使用，可配合luci-app-smartdns一起使用。  
 luci界面：[luci-app-smartdns](https://github.com/pymumu/luci-app-smartdns)
 
 ## 使用方式
@@ -69,3 +92,4 @@ make menuconfig
 ```
 
 上述命令完成后，可执行编译。
+
