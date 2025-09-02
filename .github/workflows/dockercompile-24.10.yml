@@ -5,7 +5,7 @@ on:
       - master
     paths-ignore:
       - '.github/workflows/**'
-      - 'Makefile.native'
+      - 'Makefile'
   workflow_dispatch:
 
 jobs:
