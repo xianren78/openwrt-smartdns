@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository (use PAT to allow triggering downstream workflows)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           token: ${{ secrets.PAT_WORKFLOW }}   # 使用你创建的 PAT（含 repo + workflow）
           persist-credentials: true

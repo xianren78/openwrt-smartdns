@@ -17,7 +17,7 @@ jobs:
       CUR_VERSION: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Clone smartdns repo and extract version
         run: |
           git clone https://github.com/xianren78/openwrt-smartdns.git smartdns-repo
@@ -57,7 +57,7 @@ jobs:
       PKG_VERSION: ${{ needs.get-version.outputs.CUR_VERSION }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set timezone
         run: |
           sudo timedatectl set-timezone "Asia/Shanghai"
@@ -397,7 +397,7 @@ jobs:
           echo "status=success" >> $GITHUB_OUTPUT
 
       - name: Upload to release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         if: steps.tag.outputs.status == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

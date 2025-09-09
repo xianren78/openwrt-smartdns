@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           # 使用 PAT，触发下游 on: push 的编译工作流
           token: ${{ secrets.PAT_WORKFLOW }}
