@@ -135,23 +135,6 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f smartdns"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -f luci-app-smartdns"
 
-      - name: Replace OpenSSL makefiles after feeds install
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker exec sdk-build-${{ matrix.arch }} bash -lc '
-            set -euo pipefail
-            cd /builder
-            OPENSSL_DST="feeds/base/package/libs/openssl"
-            OPENSSL_SRC="feeds/packages/net/smartdns/patch/openssl"
-            [ -d "$OPENSSL_DST" ] || { echo "ERROR: $OPENSSL_DST missing"; exit 1; }
-            [ -f "$OPENSSL_SRC/Makefile" ] || { echo "ERROR: $OPENSSL_SRC/Makefile missing"; exit 1; }
-            [ -f "$OPENSSL_SRC/Config.in" ] || { echo "ERROR: $OPENSSL_SRC/Config.in missing"; exit 1; }
-            rm -f "$OPENSSL_DST/Makefile" "$OPENSSL_DST/Config.in"
-            cp -f "$OPENSSL_SRC/Makefile" "$OPENSSL_DST/Makefile"
-            cp -f "$OPENSSL_SRC/Config.in" "$OPENSSL_DST/Config.in"
-          '
-
       - name: Configure build in container
         run: |
           #docker exec sdk-build-${{ matrix.arch }} sh -c "mkdir -p staging_dir/target-${{ matrix.package_arch }}_musl/usr/include"
