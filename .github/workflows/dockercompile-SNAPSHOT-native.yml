@@ -113,9 +113,9 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c "apt-get update && apt-get install -y curl gcc make python3 git pkg-config nodejs clang llvm-dev libclang-dev"
           docker exec sdk-build-${{ matrix.arch }} sh -c "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
           docker exec sdk-build-${{ matrix.arch }} sh -c "echo 'export PATH=/root/.cargo/bin:\$PATH' >> /root/.profile"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup toolchain install 1.89.0-x86_64-unknown-linux-gnu"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup default 1.89.0-x86_64-unknown-linux-gnu"
-          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.rust_target }} --toolchain 1.89.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup toolchain install 1.90.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup default 1.90.0-x86_64-unknown-linux-gnu"
+          docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustup target add ${{ matrix.rust_target }} --toolchain 1.90.0-x86_64-unknown-linux-gnu"
           docker exec sdk-build-${{ matrix.arch }} sh -c "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs && node -v"
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && rustc --version && cargo --version && npm --version"
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
@@ -303,15 +303,35 @@ jobs:
           '
 
       - name: Build smartdns and luci-app-smartdns in container
+        id: compile
+        continue-on-error: true
         run: |
-          #docker exec sdk-build-${{ matrix.arch }} find /usr -name "libclang.so*"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/smartdns/compile"
-          docker exec sdk-build-${{ matrix.arch }} sh -c "export PATH=/root/.cargo/bin:\$PATH && export RUSTC=/root/.cargo/bin/rustc && export CARGO=/root/.cargo/bin/cargo && export LIBCLANG_PATH=/usr/lib/llvm-11/lib && make -j$(nproc) package/luci-app-smartdns/compile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c \
+              "export PATH=/root/.cargo/bin:\$PATH && \
+               export RUSTC=/root/.cargo/bin/rustc && \
+               export CARGO=/root/.cargo/bin/cargo && \
+               export LIBCLANG_PATH=/usr/lib/llvm-11/lib && \
+               make -j$(nproc) package/smartdns/compile"
+          docker exec sdk-build-${{ matrix.arch }} sh -c \
+              "export PATH=/root/.cargo/bin:\$PATH && \
+               export RUSTC=/root/.cargo/bin/rustc && \
+               export CARGO=/root/.cargo/bin/cargo && \
+               export LIBCLANG_PATH=/usr/lib/llvm-11/lib && \
+               make -j$(nproc) package/luci-app-smartdns/compile"
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/packages/smartdns*.apk /workspace/build/ || true"
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-app-smartdns*.apk /workspace/build/ || true"
           docker exec sdk-build-${{ matrix.arch }} sh -c "cp bin/packages/${{ matrix.package_arch }}/luci/luci-i18n-smartdns*.apk /workspace/build/ || true"
           # Verify build outputs
           ls -l ${{ github.workspace }}/build/
+      - name: Extensive logs after a failed compilation
+        if: steps.compile.outcome == 'failure'
+        run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c \
+              "export PATH=/root/.cargo/bin:\$PATH && \
+               export RUSTC=/root/.cargo/bin/rustc && \
+               export CARGO=/root/.cargo/bin/cargo && \
+               export LIBCLANG_PATH=/usr/lib/llvm-11/lib && \
+               make -j\$(nproc) package/smartdns/compile V=s 
 
       - name: Generate release tag 
         id: tag 
