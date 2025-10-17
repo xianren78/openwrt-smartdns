@@ -80,12 +80,12 @@ jobs:
           # Verify Docker installation
           # docker --version
 
-      - name: Build OpenSSL 3.5 in Docker
+      - name: Build OpenSSL in Docker
         id: build-openssl
         run: |
-          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases | jq -r '[.[] | select(.tag_name | startswith("openssl-3.5")) | .tag_name] | sort | last | sub("openssl-"; "")')
+          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases |  jq -r '  [.[]   | select(.tag_name | test("^openssl-3\\.6") and (test("alpha|beta|rc") | not))   | .tag_name  ][0]   | sub("^openssl-"; "") ')
           if [ -z "$opensslver" ]; then
-            opensslver="3.5.2"
+            opensslver="3.5.4"
           fi
           echo "Build with OpenSSL version: $opensslver"
           echo "opensslver=$opensslver" >> $GITHUB_OUTPUT
@@ -149,6 +149,11 @@ jobs:
       - name: Update and install feeds in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "cd /builder"
+          docker exec sdk-build-${{ matrix.arch }} sh -c "\
+              sed -i 's#https://git.openwrt.org/feed/packages.git#https://github.com/openwrt/packages.git#g; \
+                         s#https://git.openwrt.org/project/luci.git#https://github.com/openwrt/luci.git#g; \
+                         s#https://git.openwrt.org/feed/routing.git#https://github.com/openwrt/routing.git#g; \
+                         s#https://git.openwrt.org/feed/telephony.git#https://github.com/openwrt/telephony.git#g' feeds.conf.default"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
 

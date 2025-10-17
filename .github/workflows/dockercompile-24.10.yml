@@ -81,12 +81,12 @@ jobs:
           # Verify Docker installation
           docker --version
 
-      - name: Build OpenSSL 3.5 in Docker
+      - name: Build OpenSSL in Docker
         id: build-openssl
         run: |
-          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases | jq -r '[.[] | select(.tag_name | startswith("openssl-3.5")) | .tag_name] | sort | last | sub("openssl-"; "")')
+          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases |  jq -r '  [.[]   | select(.tag_name | test("^openssl-3\\.6") and (test("alpha|beta|rc") | not))   | .tag_name  ][0]   | sub("^openssl-"; "") ')
           if [ -z "$opensslver" ]; then
-            opensslver="3.5.2"
+            opensslver="3.5.4"
           fi
           echo "Build with OpenSSL version: $opensslver"
           echo "opensslver=$opensslver" >> $GITHUB_OUTPUT
@@ -112,10 +112,10 @@ jobs:
 
       - name: Pull OpenWrt SDK Docker image
         run: |
-          docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.2
+          docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.3
       - name: Create and start SDK container
         run: |
-          docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.2 sleep infinity
+          docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.3 sleep infinity
           docker start sdk-build-${{ matrix.arch }}
       - name: Install Rust in container
         run: |
@@ -130,6 +130,11 @@ jobs:
           docker exec sdk-build-${{ matrix.arch }} sh -c ". /root/.profile && mkdir -p staging_dir/host/bin && ln -sf \$(which rustc) staging_dir/host/bin/rustc && ln -sf \$(which cargo) staging_dir/host/bin/cargo"
       - name: Update and install feeds in container
         run: |
+          docker exec sdk-build-${{ matrix.arch }} sh -c "\
+              sed -i 's#https://git.openwrt.org/feed/packages.git#https://github.com/openwrt/packages.git#g; \
+                         s#https://git.openwrt.org/project/luci.git#https://github.com/openwrt/luci.git#g; \
+                         s#https://git.openwrt.org/feed/routing.git#https://github.com/openwrt/routing.git#g; \
+                         s#https://git.openwrt.org/feed/telephony.git#https://github.com/openwrt/telephony.git#g' feeds.conf.default"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds update -a"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./scripts/feeds install -a"
       - name: Clone smartdns source into feeds in container

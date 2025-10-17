@@ -76,12 +76,12 @@ jobs:
           # Verify Docker installation
           docker --version
 
-      - name: Build OpenSSL 3.5 in Docker
+      - name: Build OpenSSL in Docker
         id: build-openssl
         run: |
-          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases | jq -r '[.[] | select(.tag_name | startswith("openssl-3.5")) | .tag_name] | sort | last | sub("openssl-"; "")')
+          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases |  jq -r '  [.[]   | select(.tag_name | test("^openssl-3\\.6") and (test("alpha|beta|rc") | not))   | .tag_name  ][0]   | sub("^openssl-"; "") ')
           if [ -z "$opensslver" ]; then
-            opensslver="3.5.2"
+            opensslver="3.5.4"
           fi
           echo "Build with OpenSSL version: $opensslver"
           echo "opensslver=$opensslver" >> $GITHUB_OUTPUT
@@ -114,12 +114,12 @@ jobs:
       - name: Update and install feeds (smartdns)
         run: |
           cd openwrt-sdk
-          ./scripts/feeds update -a
+          ./scripts/feeds update luci packages
           # Fix Rust 1.85.0 CI
           rm -rf feeds/packages/lang/rust/Makefile
           rm -rf feeds/packages/lang/rust/patches/0003-bump-libc-deps-to-0.2.146.patch
           wget -O feeds/packages/lang/rust/Makefile https://github.com/openwrt/packages/raw/refs/heads/master/lang/rust/Makefile
-          ./scripts/feeds install -a
+          ./scripts/feeds install luci packages
 
       - name: Clone smartdns source into feeds
         run: |
