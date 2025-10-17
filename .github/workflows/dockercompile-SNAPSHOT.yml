@@ -80,12 +80,12 @@ jobs:
           # Verify Docker installation
           # docker --version
 
-      - name: Build OpenSSL 3.5 in Docker
+      - name: Build OpenSSL in Docker
         id: build-openssl
         run: |
-          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases | jq -r '[.[] | select(.tag_name | startswith("openssl-3.5")) | .tag_name] | sort | last | sub("openssl-"; "")')
+          opensslver=$(curl -s https://api.github.com/repos/openssl/openssl/releases |  jq -r '  [.[]   | select(.tag_name | test("^openssl-3\\.6") and (test("alpha|beta|rc") | not))   | .tag_name  ][0]   | sub("^openssl-"; "") ')
           if [ -z "$opensslver" ]; then
-            opensslver="3.5.2"
+            opensslver="3.5.4"
           fi
           echo "Build with OpenSSL version: $opensslver"
           echo "opensslver=$opensslver" >> $GITHUB_OUTPUT
