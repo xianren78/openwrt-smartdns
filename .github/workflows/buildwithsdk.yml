@@ -108,18 +108,18 @@ jobs:
       - name: Download and extract OpenWrt SDK
         run: |
           mkdir -p openwrt-sdk
-          curl -sSL --retry 3 --retry-delay 5 https://downloads.openwrt.org/releases/24.10.2/targets/${{ matrix.target }}/${{ matrix.subtarget }}/openwrt-sdk-24.10.2-${{ matrix.target }}-${{ matrix.subtarget }}_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
+          curl -sSL --retry 3 --retry-delay 5 https://downloads.openwrt.org/releases/24.10.3/targets/${{ matrix.target }}/${{ matrix.subtarget }}/openwrt-sdk-24.10.3-${{ matrix.target }}-${{ matrix.subtarget }}_gcc-13.3.0_musl.Linux-x86_64.tar.zst -o sdk.tar.zst
           tar --use-compress-program=unzstd -xvf sdk.tar.zst -C openwrt-sdk --strip-components=1
 
       - name: Update and install feeds (smartdns)
         run: |
           cd openwrt-sdk
-          ./scripts/feeds update luci packages
+          ./scripts/feeds update -a
           # Fix Rust 1.85.0 CI
           rm -rf feeds/packages/lang/rust/Makefile
           rm -rf feeds/packages/lang/rust/patches/0003-bump-libc-deps-to-0.2.146.patch
           wget -O feeds/packages/lang/rust/Makefile https://github.com/openwrt/packages/raw/refs/heads/master/lang/rust/Makefile
-          ./scripts/feeds install luci packages
+          ./scripts/feeds install -a
 
       - name: Clone smartdns source into feeds
         run: |
