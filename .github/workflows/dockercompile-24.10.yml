@@ -131,7 +131,8 @@ jobs:
       - name: Update and install feeds in container
         run: |
           docker exec sdk-build-${{ matrix.arch }} sh -c "\
-              sed -i 's#https://git.openwrt.org/feed/packages.git#https://github.com/openwrt/packages.git#g; \
+              sed -i 's#https://git.openwrt.org/openwrt/openwrt.git#https://github.com/openwrt/openwrt.git#g; \
+                         s#https://git.openwrt.org/feed/packages.git#https://github.com/openwrt/packages.git#g; \
                          s#https://git.openwrt.org/project/luci.git#https://github.com/openwrt/luci.git#g; \
                          s#https://git.openwrt.org/feed/routing.git#https://github.com/openwrt/routing.git#g; \
                          s#https://git.openwrt.org/feed/telephony.git#https://github.com/openwrt/telephony.git#g' feeds.conf.default"
