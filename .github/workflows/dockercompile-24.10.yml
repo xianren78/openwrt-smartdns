@@ -8,6 +8,7 @@ on:
       - 'Makefile.ipk'
       - 'Makefile.sdk'
       - 'Makefile.apk'
+      - 'Makefileh2.ipk'
   workflow_dispatch:
 
 jobs:
