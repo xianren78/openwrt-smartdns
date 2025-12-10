@@ -357,7 +357,7 @@ jobs:
           set -euo pipefail
 
           SHORT_SHA=$(echo "${{ github.sha }}" | cut -c 1-7) 
-          echo "release_tag=smartdns-${{ matrix.package_arch }}-${{ needs.get-version.outputs.CUR_VERSION }}-${SHORT_SHA}" >> $GITHUB_OUTPUT 
+          echo "release_tag=http2test-${SHORT_SHA}" >> $GITHUB_OUTPUT 
           echo "for OpenWrt 24.10 ${{ matrix.arch }} with OpenSSL v${{ steps.build-openssl.outputs.opensslver }}" > release.txt 
           echo "" >> release.txt 
           echo "更新：" >> release.txt          
@@ -426,3 +426,4 @@ jobs:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
           files: ${{ github.workspace }}/build/*.ipk
+          prerelease: true
