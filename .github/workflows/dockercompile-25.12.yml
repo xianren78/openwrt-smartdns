@@ -117,7 +117,7 @@ jobs:
         run: |
           mkdir -p openwrt-gpg-keys
           curl -fsSL -o openwrt-gpg-keys/0x1D53D1877742E911.asc https://github.com/openwrt/keyring/raw/refs/heads/master/gpg/0x1D53D1877742E911.asc
-          docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace -v "$PWD/openwrt-gpg-keys:/builder/keys" ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-v25.12.0-rc1 sleep infinity
+          docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace -v "$PWD/openwrt-gpg-keys/0x1D53D1877742E911.asc:/builder/keys/0x1D53D1877742E911.asc" ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-v25.12.0-rc1 sleep infinity
           docker start sdk-build-${{ matrix.arch }}
           docker exec sdk-build-${{ matrix.arch }} sh -c "cd /builder"
           docker exec sdk-build-${{ matrix.arch }} sh -c "./setup.sh"
