@@ -1,4 +1,4 @@
-name: OP SNAPSHOT SDK docker build smartdns
+name: OP 25.12 SDK docker build smartdns
 on:
   push:
     branches:
