@@ -113,10 +113,10 @@ jobs:
 
       - name: Pull OpenWrt SDK Docker image
         run: |
-          docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.4
+          docker pull ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.5
       - name: Create and start SDK container
         run: |
-          docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.4 sleep infinity
+          docker create --user root --name sdk-build-${{ matrix.arch }} -v ${{ github.workspace }}:/workspace ghcr.io/openwrt/sdk:${{ matrix.docker_tag }}-24.10.5 sleep infinity
           docker start sdk-build-${{ matrix.arch }}
       - name: Install Rust in container
         run: |
