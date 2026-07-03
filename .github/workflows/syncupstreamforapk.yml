@@ -1,4 +1,4 @@
-name: for 25.12 Upsteam SmartDNS and WebUI Package Versions update
+name: OpenWrt 25.12 Upsteam Sync for Smartdns and WebUI
 
 permissions:
   contents: write
@@ -82,7 +82,7 @@ jobs:
             git config user.name "GitHub Actions"
             git config user.email "actions@github.com"
             git add Makefile
-            git commit -m "$COMMIT_MESSAGE smartdns/webui for SNAPSHOT to latest commits"
+            git commit -m "$COMMIT_MESSAGE smartdns/webui for OpenWrt 25.12"
             git push origin HEAD:${{ github.ref_name }}
           else
             echo "No changes needed."
