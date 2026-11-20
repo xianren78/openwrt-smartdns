@@ -1,0 +1,41 @@
+name: Cleanup Old SmartDNS Releases
+
+on:
+  # 每天 UTC 时间 00:00（北京时间 08:00）自动运行
+  schedule:
+    - cron: '0 0 * * 1'
+  # 支持在 GitHub Actions 页面手动触发测试
+  workflow_dispatch:
+
+permissions:
+  contents: write # 必须赋予写权限才能删除 release 和 tag
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old smartdns releases and tags
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # 计算 30 天前的 ISO 8601 格式时间戳
+          CUTOFF_DATE=$(date -u -d "30 days ago" +"%Y-%m-%dT%H:%M:%SZ")
+          echo "将删除创建时间早于 $CUTOFF_DATE 且 tag 包含 'smartdns' 的 Release..."
+
+          # 获取所有 release（包含正式版和 prerelease），筛选符合条件的 tag
+          # 如果仓库 release 超过 1000 个，可以适当调大 --limit 参数
+          TAGS=$(gh release list --repo "${{ github.repository }}" --limit 1000 --json tagName,createdAt \
+            --jq ".[] | select(.tagName | contains(\"smartdns\")) | select(.createdAt < \"$CUTOFF_DATE\") | .tagName")
+
+          if [ -z "$TAGS" ]; then
+            echo "没有找到符合条件的旧 Release。"
+            exit 0
+          fi
+
+          # 遍历并删除对应的 Release 以及关联的 Git Tag
+          for TAG in $TAGS; do
+            echo "正在删除 Release 及 Tag: $TAG"
+            gh release delete "$TAG" --repo "${{ github.repository }}" --cleanup-tag --yes
+          done
+          
+          echo "清理完成！"
