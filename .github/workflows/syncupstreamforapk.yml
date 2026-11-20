@@ -1,89 +1,119 @@
-name: OpenWrt 25.12 Upsteam Sync for Smartdns and WebUI
+name: OpenWrt 25.12 Upstream Sync for Smartdns and WebUI
 
 permissions:
   contents: write
 
 on:
   schedule:
-    - cron: '36 */4 * * *'   # UTC，每4小时
+    - cron: '36 */4 * * *'  # UTC，每 4 小时的第 36 分钟
   workflow_dispatch:
+
+concurrency:
+  group: smartdns-upstream-sync-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   update:
+    if: ${{ github.ref_type == 'branch' }}
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
           # 使用 PAT，触发下游 on: push 的编译工作流
           token: ${{ secrets.PAT_WORKFLOW }}
           persist-credentials: true
 
-      - name: Install jq
+      - name: Get latest upstream commits
+        shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-
-      - name: Get current versions from Makefile
-        run: |
-          CURRENT_SMARTDNS_VERSION=$(grep -E '^PKG_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
-          CURRENT_WEBUI_VERSION=$(grep -E '^SMARTDNS_WEBUI_SOURCE_VERSION:=' Makefile | sed 's/.*:=//')
-          echo "CURRENT_SMARTDNS_VERSION=$CURRENT_SMARTDNS_VERSION" >> $GITHUB_ENV
-          echo "CURRENT_WEBUI_VERSION=$CURRENT_WEBUI_VERSION" >> $GITHUB_ENV
-
-      - name: Get latest commit SHA from smartdns repo
-        run: |
-          LATEST_SMARTDNS_COMMIT=$(curl -s -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/pymumu/smartdns/commits/master | jq -r '.sha // empty')
-          if [ -z "$LATEST_SMARTDNS_COMMIT" ]; then
-            echo "Failed to fetch latest commit from pymumu/smartdns" >&2
-            exit 1
-          fi
-          echo "LATEST_SMARTDNS_COMMIT=$LATEST_SMARTDNS_COMMIT" >> $GITHUB_ENV
-
-      - name: Get latest commit SHA from smartdns-webui repo
-        run: |
-          LATEST_WEBUI_COMMIT=$(curl -s -H "Accept: application/vnd.github+json" \
-            https://api.github.com/repos/pymumu/smartdns-webui/commits/main | jq -r '.sha // empty')
-          if [ -z "$LATEST_WEBUI_COMMIT" ]; then
-            echo "No valid commit SHA from pymumu/smartdns-webui, use current"
-            echo "LATEST_WEBUI_COMMIT=${{ env.CURRENT_WEBUI_VERSION }}" >> $GITHUB_ENV
-          else
-            echo "LATEST_WEBUI_COMMIT=$LATEST_WEBUI_COMMIT" >> $GITHUB_ENV
-          fi
-
-      - name: Update Makefile if versions differ
-        if: ${{ env.CURRENT_SMARTDNS_VERSION != env.LATEST_SMARTDNS_COMMIT || env.CURRENT_WEBUI_VERSION != env.LATEST_WEBUI_COMMIT }}
-        run: |
-          set -e
-          COMMIT_MESSAGE="chore: bump"
-          UPDATE_NEEDED=false
-
-          update_file() {
-            local f="$1"
-            [ -f "$f" ] || { echo "Skip: $f not found"; return; }
-
-            if [ "${{ env.CURRENT_SMARTDNS_VERSION }}" != "${{ env.LATEST_SMARTDNS_COMMIT }}" ]; then
-              sed -i -E "s/^PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=${{ env.LATEST_SMARTDNS_COMMIT }}/" "$f"
-              echo "[$f] Updated PKG_SOURCE_VERSION -> ${{ env.LATEST_SMARTDNS_COMMIT }}"
-              UPDATE_NEEDED=true
-            fi
-
-            if [ "${{ env.CURRENT_WEBUI_VERSION }}" != "${{ env.LATEST_WEBUI_COMMIT }}" ]; then
-              sed -i -E "s/^SMARTDNS_WEBUI_SOURCE_VERSION:=.*/SMARTDNS_WEBUI_SOURCE_VERSION:=${{ env.LATEST_WEBUI_COMMIT }}/" "$f"
-              echo "[$f] Updated SMARTDNS_WEBUI_SOURCE_VERSION -> ${{ env.LATEST_WEBUI_COMMIT }}"
-              UPDATE_NEEDED=true
-            fi
+          get_commit() {
+            curl --fail --silent --show-error --retry 2 --max-time 30 \
+              -H "Accept: application/vnd.github+json" "$1" |
+              jq -er '.sha | strings | select(test("^[0-9a-f]{40}$"))'
           }
 
-          update_file Makefile
-
-          if [ "$UPDATE_NEEDED" = true ]; then
-            git config user.name "GitHub Actions"
-            git config user.email "actions@github.com"
-            git add Makefile
-            git commit -m "$COMMIT_MESSAGE smartdns/webui for OpenWrt 25.12"
-            git push origin HEAD:${{ github.ref_name }}
-          else
-            echo "No changes needed."
+          if ! smartdns_commit=$(get_commit \
+            https://api.github.com/repos/pymumu/smartdns/commits/master); then
+            echo "::error::Failed to fetch a valid SmartDNS commit SHA."
+            exit 1
           fi
+
+          if ! webui_commit=$(get_commit \
+            https://api.github.com/repos/pymumu/smartdns-webui/commits/main); then
+            echo "::warning::Could not fetch the WebUI commit SHA. Keeping the current WebUI version."
+            webui_commit=
+          fi
+
+          {
+            echo "LATEST_SMARTDNS_COMMIT=$smartdns_commit"
+            echo "LATEST_WEBUI_COMMIT=$webui_commit"
+          } >> "$GITHUB_ENV"
+
+      - name: Update Makefile and push
+        shell: bash
+        run: |
+          update_version() {
+            local key="$1"
+            local version="$2"
+            local count
+
+            count=$(grep -c "^${key}:=" Makefile || true)
+            if [[ "$count" != 1 ]]; then
+              echo "::error file=Makefile::Expected exactly one ${key}:= assignment."
+              return 1
+            fi
+
+            sed -i "s/^${key}:=.*/${key}:=${version}/" Makefile
+          }
+
+          update_version PKG_SOURCE_VERSION "$LATEST_SMARTDNS_COMMIT"
+          if [[ -n "$LATEST_WEBUI_COMMIT" ]]; then
+            update_version SMARTDNS_WEBUI_SOURCE_VERSION "$LATEST_WEBUI_COMMIT"
+          fi
+
+          if git diff --quiet -- Makefile; then
+            echo "No changes needed."
+            exit 0
+          fi
+
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add -- Makefile
+          git commit -m "chore: bump smartdns/webui for OpenWrt 25.12"
+
+          target_ref="refs/heads/$GITHUB_REF_NAME"
+
+          for attempt in 1 2 3; do
+            git fetch origin "$target_ref"
+            base=$(git rev-parse FETCH_HEAD)
+
+            if ! git rebase "$base"; then
+              git rebase --abort
+              echo "::error::Remote changes conflict with this version update. Rerun the workflow to read the latest Makefile."
+              exit 1
+            fi
+
+            if [[ "$(git rev-parse HEAD)" == "$base" ]]; then
+              echo "The update is already present on the remote branch."
+              exit 0
+            fi
+
+            if git push origin "HEAD:$target_ref"; then
+              exit 0
+            fi
+
+            git fetch origin "$target_ref"
+            if [[ "$(git rev-parse FETCH_HEAD)" == "$base" ]]; then
+              echo "::error::Push failed without a remote branch update. Check the git push error above."
+              exit 1
+            fi
+
+            echo "Remote branch advanced during push (attempt $attempt of 3)."
+          done
+
+          echo "::error::Remote branch kept advancing. Push failed after 3 attempts."
+          exit 1
